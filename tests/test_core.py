@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from argparse import Namespace
 
+from dm8_verify.collectors import dm8 as dm8_collector
 from dm8_verify.collectors.dm8 import build_disql_script, parse_disql_output, stream_disql_output
 from dm8_verify.collectors.source import collect_source, load_config
 from dm8_verify.comparator import compare_baselines
@@ -224,6 +225,22 @@ class DisqlTests(unittest.TestCase):
                 os.environ.pop("DM8_VERIFY_PASSWORD", None)
             else:
                 os.environ["DM8_VERIFY_PASSWORD"] = old
+
+    def test_online_collector_labels_restored_and_rejects_duplicate_keys(self):
+        import os
+        from unittest.mock import patch
+        os.environ["DM8_VERIFY_PASSWORD"] = "test-password"
+        table = {"name": "T", "columns": [{"name": "ID", "type": "INT", "nullable": False}], "primary_key": ["ID"]}
+        config = {"username": "readonly", "host": "127.0.0.1", "service": "DM"}
+        try:
+            with patch.object(dm8_collector, "stream_disql_output", return_value=iter([("T", ["1"]), ("T", ["2"])])):
+                result = dm8_collector.collect_dm8(config, [table], source_type="RESTORED")
+                self.assertEqual(result["source_type"], "RESTORED")
+            with patch.object(dm8_collector, "stream_disql_output", return_value=iter([("T", ["1"]), ("T", ["1"])])):
+                with self.assertRaisesRegex(RuntimeError, "duplicate primary key"):
+                    dm8_collector.collect_dm8(config, [table])
+        finally:
+            os.environ.pop("DM8_VERIFY_PASSWORD", None)
 
 
 if __name__ == "__main__":

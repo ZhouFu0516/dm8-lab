@@ -141,7 +141,7 @@ def stream_disql_output(config: dict[str, Any], script: str, table_names: list[s
         raise RuntimeError(f"failed to execute disql: {type(exc).__name__}: {exc}") from exc
 
 
-def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]]) -> dict[str, Any]:
+def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]], source_type: str = "DATABASE") -> dict[str, Any]:
     """Collect data fingerprints. DM8 catalog metadata remains NOT_COLLECTED until version-specific SQL is verified."""
     from datetime import datetime, timezone
     import uuid
@@ -157,7 +157,7 @@ def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]]) -> dict[st
         state[name] = {
             "data": MultisetDigest(f"DATA:{name}"), "pk": MultisetDigest(f"PK:{name}"),
             "count": 0, "key_indexes": [next(i for i, col in enumerate(table["columns"]) if col["name"] == key) for key in table["primary_key"]],
-            "columns": table["columns"], "primary_key": table["primary_key"],
+            "columns": table["columns"], "primary_key": table["primary_key"], "previous_key": None,
         }
     for name, row in stream_disql_output(config, script, list(state)):
         item = state[name]
@@ -168,7 +168,11 @@ def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]]) -> dict[st
         key = [normalized[index] for index in item["key_indexes"]]
         if any(value is None for value in key):
             raise RuntimeError(f"{name} row {item['count'] + 1}: NULL primary key")
-        item["pk"].add(canonical_bytes(key))
+        key_payload = canonical_bytes(key)
+        if key_payload == item["previous_key"]:
+            raise RuntimeError(f"{name} row {item['count'] + 1}: duplicate primary key")
+        item["previous_key"] = key_payload
+        item["pk"].add(key_payload)
         item["count"] += 1
     for table in tables:
         name = table["name"].upper()
@@ -186,7 +190,7 @@ def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]]) -> dict[st
     return {
         "schema_version": "1.0", "fingerprint_version": FINGERPRINT_VERSION,
         "run_id": str(uuid.uuid4()), "collection_time": datetime.now(timezone.utc).isoformat(),
-        "source_type": "DATABASE", "source_identifier": f"{config.get('host')}:{config.get('port', 5236)}/{config.get('service')}",
+        "source_type": source_type, "source_identifier": f"{config.get('host')}:{config.get('port', 5236)}/{config.get('service')}",
         "database_version": {"status": "NOT_COLLECTED", "value": None},
         "schema_name": config.get("schema_name", "HR_TEST"), "collection_status": "PASS",
         "tables": results, "total_row_count": total, "errors": errors,

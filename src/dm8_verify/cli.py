@@ -63,7 +63,7 @@ def command_collect_db(args: argparse.Namespace) -> int:
     try:
         config = json.loads(args.db_config.read_text(encoding="utf-8"))
         tables = load_config(args.tables_config)["tables"]
-        baseline = collect_dm8(config, tables)
+        baseline = collect_dm8(config, tables, source_type=args.source_type)
         if args.output.exists() and any(args.output.iterdir()):
             raise ValueError(f"output directory is not empty: {args.output}")
         write_baseline_outputs(baseline, args.output)
@@ -130,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     db = sub.add_parser("collect-db", help="只读采集 DM8 数据库（需要真实 disql 和配置）")
     db.add_argument("--db-config", type=Path, required=True)
     db.add_argument("--tables-config", type=Path, default=root / "config/tables.json")
+    db.add_argument("--source-type", choices=("DATABASE", "RESTORED"), default="DATABASE", help="证据来源标签；恢复目标使用 RESTORED")
     db.add_argument("--output", type=Path, required=True)
     db.set_defaults(func=command_collect_db)
     compare = sub.add_parser("compare", help="比较两个基线 JSON")

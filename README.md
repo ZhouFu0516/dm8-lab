@@ -69,7 +69,11 @@ PYTHONPATH=src python3 -m dm8_verify.cli collect-db \
   --output outputs/database-before
 ```
 
+恢复目标采集时增加 `--source-type RESTORED`，用于和恢复前 `DATABASE` 基线配对。
+
 配置文件应只保存主机、端口、服务名、用户名、`password_env` 和 `disql_path`，不要保存密码。当前没有可用 DM8 客体连接，因此在线采集未联调；目录中的 SQL 模板也不应在未核对 DM8 版本系统视图前直接执行。
+
+密码经 stdin 送给 `/nolog` 会话，不出现在 disql 命令行、日志或子进程环境中；为避免连接语法注入，密码仅支持安全字符集。
 
 密码字符受安全连接语法限制；密码经 stdin 送给 `/nolog` 会话，不出现在 disql 命令行、日志或子进程环境中。
 

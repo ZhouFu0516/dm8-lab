@@ -20,7 +20,7 @@
 
 manifest 校验状态为 `PASS`，逐个输入文件 SHA-256 与 `/srv/dm8-lab/fixtures/hr/source_manifest.json` 一致。基线文件位于 `outputs/p2-demo/source-before/baseline.json` 和 `outputs/p2-demo/source-after/baseline.json`。
 
-一次完整源采集的实测指标：约 93.838 秒，峰值 RSS 约 211.7 MiB（`getrusage`，Linux KiB 转换），采用逐行处理和临时 SQLite 主键去重。完整 Demo 两次采集总耗时约 187.61 秒。
+一次完整源采集的实测指标：约 93.838 秒，峰值 RSS 约 211.7 MiB（`getrusage`，Linux KiB 转换），采用逐行处理和临时 SQLite 主键去重。最终完整 Demo 两次采集总耗时 199.687 秒。
 
 ## Demo 结果
 
@@ -29,7 +29,7 @@ manifest 校验状态为 `PASS`，逐个输入文件 SHA-256 与 `/srv/dm8-lab/f
 - 证据不足比较：`INCOMPLETE`。移除 EMPLOYEES 数据摘要后，未错误返回 PASS。
 - 在线状态：`ONLINE_NOT_VERIFIED`。没有可用 DM8 连接，本轮只测试适配层脚本生成和 disql 标记解析。
 
-结果文件：
+结果文件（运行产物在 `.gitignore` 中排除，执行 Demo 会重新生成）：
 
 - `outputs/p2-demo/normal-comparison.{json,md,csv}`
 - `outputs/p2-demo/anomaly-comparison.{json,md,csv}`
@@ -44,7 +44,7 @@ manifest 校验状态为 `PASS`，逐个输入文件 SHA-256 与 `/srv/dm8-lab/f
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-结果：25 项通过，0 项失败。覆盖正常采集、重复摘要、输入顺序变化、字段/行数/主键/聚合变化、结构和约束变化、重复主键、缺失文件、非法配置、缺失证据、跨来源比较、版本不兼容、disql 输出解析和 CLI 退出码。
+结果：26 项通过，0 项失败。覆盖正常采集、重复摘要、输入顺序变化、字段/行数/主键/聚合变化、结构和约束变化、重复主键、缺失文件、非法配置、缺失证据、跨来源比较、版本不兼容、disql 输出解析、RESTORED 来源标记及 CLI 退出码。
 
 ## 已知限制
 
