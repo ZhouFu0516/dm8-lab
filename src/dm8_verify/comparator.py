@@ -34,8 +34,12 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any], level: str 
     for name in sorted(set(tables_before) | set(tables_after)):
         left, right = tables_before.get(name), tables_after.get(name)
         if left is None or right is None:
-            table_results[name] = _item("MISMATCH", left, right, "table missing in one baseline")
-            differences.append(table_results[name])
+            if level == "ROW_COUNT":
+                table_results[name] = {"row_count": _item("INCOMPLETE", left, right, "table/count evidence missing in one baseline")}
+                incomplete.append({"table": name, "check": "row_count"})
+            else:
+                table_results[name] = _item("MISMATCH", left, right, "table missing in one baseline")
+                differences.append(table_results[name])
             continue
         checks: dict[str, Any] = {}
         checks_to_run = [("row_count", "row_count")]
@@ -86,8 +90,8 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any], level: str 
     if not allowed:
         incomplete.append({"check": "source_compatibility", "status": "INCOMPLETE", "detail": f"comparison {source_pair[0]} -> {source_pair[1]} is cross-source"})
     required_complete = not incomplete and not errors and bool(table_results)
-    status = "PASS" if required_complete and not differences else "FAIL" if differences else "INCOMPLETE"
-    if errors and not differences:
+    status = "ERROR" if errors else "PASS" if required_complete and not differences else "FAIL" if differences else "INCOMPLETE"
+    if errors:
         status = "ERROR"
     return {
         "schema_version": "1.0", "comparison_version": "1.0", "validation_level": level,
