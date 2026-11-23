@@ -176,6 +176,39 @@ class ComparatorTests(unittest.TestCase):
         right["tables"]["T"]["index_metadata"] = {"status": "NOT_COLLECTED", "items": None}
         self.assertEqual(compare_baselines(left, right)["status"], "INCOMPLETE")
 
+    def test_row_count_level_ignores_uncollected_content(self):
+        left, right = self.baseline(), self.baseline()
+        left["tables"]["T"]["data_fingerprint"] = None
+        right["tables"]["T"]["data_fingerprint"] = None
+        result = compare_baselines(left, right, level="ROW_COUNT")
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["validation_level"], "ROW_COUNT")
+
+    def test_data_only_requires_data_evidence(self):
+        left, right = self.baseline(), self.baseline()
+        right["tables"]["T"]["data_fingerprint"] = None
+        result = compare_baselines(left, right, level="DATA_ONLY")
+        self.assertEqual(result["status"], "INCOMPLETE")
+
+    def test_full_requires_indexes(self):
+        left, right = self.baseline(), self.baseline()
+        right["tables"]["T"]["index_metadata"] = {"status": "NOT_COLLECTED", "items": None}
+        self.assertEqual(compare_baselines(left, right, level="FULL")["status"], "INCOMPLETE")
+
+    def test_row_count_comparison_csv_has_requested_columns(self):
+        import csv
+        from dm8_verify.reporter import write_comparison_outputs
+        before, after = self.baseline("DATABASE"), self.baseline("DATABASE")
+        after["tables"]["T"]["row_count"] = 3
+        comparison = compare_baselines(before, after, level="ROW_COUNT")
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory) / "count-comparison"
+            write_comparison_outputs(comparison, prefix)
+            with prefix.with_suffix(".csv").open(encoding="utf-8", newline="") as stream:
+                rows = list(csv.reader(stream))
+            self.assertEqual(rows[0], ["table_name", "before_count", "after_count", "difference", "status"])
+            self.assertEqual(rows[1], ["T", "1", "3", "2", "MISMATCH"])
+
     def test_aggregate_change_is_difference(self):
         left, right = self.baseline(), self.baseline()
         left["tables"]["T"]["aggregate_statistics"] = {"A": {"sum": "1"}}
@@ -225,6 +258,27 @@ class DisqlTests(unittest.TestCase):
                 os.environ.pop("DM8_VERIFY_PASSWORD", None)
             else:
                 os.environ["DM8_VERIFY_PASSWORD"] = old
+
+    def test_count_script_selects_only_counts_and_refuses_errors(self):
+        import os
+        from unittest.mock import patch
+        os.environ["DM8_VERIFY_PASSWORD"] = "test-password"
+        config = {"username": "readonly", "host": "127.0.0.1", "service": "DM"}
+        tables = [{"name": "T"}]
+        try:
+            script = dm8_collector.build_count_script(config, tables)
+            self.assertIn("SELECT COUNT(*) FROM HR_TEST.T", script)
+            self.assertNotIn("INSERT", script.upper())
+            completed = type("Proc", (), {"returncode": 0, "stdout": "__DM8_VERIFY_COUNT_BEGIN__T\n3\n__DM8_VERIFY_COUNT_END__T\n"})()
+            with patch.object(dm8_collector.subprocess, "run", return_value=completed):
+                baseline = dm8_collector.collect_dm8_counts(config, tables)
+            self.assertEqual(baseline["tables"]["T"]["row_count"], 3)
+            completed.stdout = "__DM8_VERIFY_COUNT_BEGIN__T\nORA-like SQL error\n__DM8_VERIFY_COUNT_END__T\n"
+            with patch.object(dm8_collector.subprocess, "run", return_value=completed):
+                with self.assertRaisesRegex(RuntimeError, "COUNT\\(\\*\\) failed"):
+                    dm8_collector.collect_dm8_counts(config, tables)
+        finally:
+            os.environ.pop("DM8_VERIFY_PASSWORD", None)
 
     def test_online_collector_labels_restored_and_rejects_duplicate_keys(self):
         import os

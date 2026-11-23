@@ -56,6 +56,8 @@ PYTHONPATH=src python3 -m dm8_verify.cli demo --output outputs/p2-demo
 
 比较器会检查行数、主键摘要、数据摘要、列/约束/索引元数据和采集错误。只有所有配置项都采集且通过时才返回 `PASS`。来源类型不兼容、摘要缺失或版本不兼容返回 `INCOMPLETE`；发现差异返回 `FAIL`。
 
+验证等级：`ROW_COUNT` 只比较逐表记录数；`DATA_ONLY` 比较记录数、已采集的主键摘要和数据摘要，并检查采集错误；`FULL` 还强制要求列元数据、约束、索引和聚合统计。未采集的必需证据一律为 `INCOMPLETE`，因此 `ROW_COUNT` 或 `DATA_ONLY` 结果不能表述为完整一致性。
+
 退出码：`0` 全部通过，`1` 发现差异，`2` 输入或采集错误，`3` 证据不足。
 
 ## DM8 在线适配层

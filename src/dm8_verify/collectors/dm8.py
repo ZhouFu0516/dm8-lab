@@ -11,6 +11,8 @@ from ..fingerprint import canonical_bytes, normalize
 
 BEGIN_PREFIX = "__DM8_VERIFY_BEGIN__"
 END_PREFIX = "__DM8_VERIFY_END__"
+COUNT_BEGIN_PREFIX = "__DM8_VERIFY_COUNT_BEGIN__"
+COUNT_END_PREFIX = "__DM8_VERIFY_COUNT_END__"
 
 
 def build_disql_script(config: dict[str, Any], tables: list[dict[str, Any]]) -> str:
@@ -56,6 +58,100 @@ def build_disql_script(config: dict[str, Any], tables: list[dict[str, Any]]) -> 
         ])
     lines.append("EXIT SUCCESS")
     return "\n".join(lines) + "\n"
+
+
+def build_count_script(config: dict[str, Any], tables: list[dict[str, Any]]) -> str:
+    """Build a small COUNT(*)-only script, avoiding fragile full-row serialization."""
+    # Reuse the validated credentials and connection properties from the regular
+    # script builder, but do not emit its data queries.
+    full_script = build_disql_script(config, [])
+    lines = full_script.splitlines()[:-1]
+    schema = config.get("schema_name", "HR_TEST")
+    for table in tables:
+        name = table["name"].upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9_$#]*", name):
+            raise ValueError(f"invalid table identifier: {name}")
+        lines.extend([
+            f"PROMPT {COUNT_BEGIN_PREFIX}{name}",
+            f"SELECT COUNT(*) FROM {schema}.{name};",
+            f"PROMPT {COUNT_END_PREFIX}{name}",
+        ])
+    lines.append("EXIT SUCCESS")
+    return "\n".join(lines) + "\n"
+
+
+def collect_dm8_counts(config: dict[str, Any], tables: list[dict[str, Any]], source_type: str = "DATABASE") -> dict[str, Any]:
+    """Collect real COUNT(*) evidence; every table must yield exactly one integer."""
+    from datetime import datetime, timezone
+    import uuid
+
+    script = build_count_script(config, tables)
+    child_env = os.environ.copy()
+    child_env.pop(config.get("password_env", "DM8_VERIFY_PASSWORD"), None)
+    try:
+        completed = subprocess.run(
+            [config.get("disql_path", "disql"), "/nolog"], input=script,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            encoding="utf-8", errors="strict", env=child_env,
+            timeout=int(config.get("timeout_seconds", 3600)), check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+        raise RuntimeError(f"failed to execute COUNT(*) query: {type(exc).__name__}: {exc}") from exc
+    if completed.returncode != 0:
+        raise RuntimeError(f"disql exited with status {completed.returncode}; database output suppressed")
+
+    counts: dict[str, int] = {}
+    current: str | None = None
+    values: list[str] = []
+    expected = {table["name"].upper() for table in tables}
+    for raw in completed.stdout.splitlines():
+        line = raw.strip()
+        if line.startswith(COUNT_BEGIN_PREFIX):
+            current = line[len(COUNT_BEGIN_PREFIX):].strip().upper()
+            if current not in expected or current in counts:
+                raise RuntimeError(f"unexpected or duplicate COUNT(*) section: {current}")
+            values = []
+            continue
+        if line.startswith(COUNT_END_PREFIX):
+            name = line[len(COUNT_END_PREFIX):].strip().upper()
+            if current != name:
+                raise RuntimeError(f"mismatched COUNT(*) section end: {name}")
+            if len(values) != 1 or not re.fullmatch(r"\d+", values[0]):
+                raise RuntimeError(f"COUNT(*) failed or returned invalid output for {name}")
+            counts[name] = int(values[0])
+            current = None
+            continue
+        if current is not None and line:
+            # Disql emits diagnostics as text too. Requiring exactly one numeric
+            # row per query prevents a SQL error from masquerading as an empty table.
+            values.append(line)
+    if current is not None or counts.keys() != expected:
+        missing = expected - counts.keys()
+        raise RuntimeError(f"COUNT(*) output incomplete; missing tables: {', '.join(sorted(missing))}")
+
+    results = {
+        name: {
+            "table_name": name, "row_count": counts[name],
+            "primary_key_fingerprint": None, "data_fingerprint": None,
+            "column_metadata": {"status": "NOT_COLLECTED"},
+            "constraint_metadata": {"status": "NOT_COLLECTED"},
+            "index_metadata": {"status": "NOT_COLLECTED"},
+            "aggregate_statistics": {"status": "NOT_COLLECTED"},
+            "collection_status": "PASS", "errors": [],
+        }
+        for name in sorted(counts)
+    }
+    return {
+        "schema_version": "1.0", "fingerprint_version": "1.0",
+        "run_id": str(uuid.uuid4()), "collection_time": datetime.now(timezone.utc).isoformat(),
+        "source_type": source_type,
+        "source_identifier": f"{config.get('host')}:{config.get('port', 5236)}/{config.get('service')}",
+        "database_version": {"status": "NOT_COLLECTED", "value": None},
+        "schema_name": config.get("schema_name", "HR_TEST"),
+        "validation_level": "ROW_COUNT", "collection_status": "PASS",
+        "tables": results, "total_row_count": sum(counts.values()), "errors": [],
+        "notes": ["ROW_COUNT proves table-level row counts only; it does not prove content equality."],
+    }
 
 
 def parse_disql_output(output: str, table_names: list[str]) -> dict[str, list[list[str | None]]]:
@@ -141,8 +237,12 @@ def stream_disql_output(config: dict[str, Any], script: str, table_names: list[s
         raise RuntimeError(f"failed to execute disql: {type(exc).__name__}: {exc}") from exc
 
 
-def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]], source_type: str = "DATABASE") -> dict[str, Any]:
+def collect_dm8(config: dict[str, Any], tables: list[dict[str, Any]], source_type: str = "DATABASE", level: str = "DATA_ONLY") -> dict[str, Any]:
     """Collect data fingerprints. DM8 catalog metadata remains NOT_COLLECTED until version-specific SQL is verified."""
+    if level == "ROW_COUNT":
+        return collect_dm8_counts(config, tables, source_type)
+    if level not in {"DATA_ONLY", "FULL"}:
+        raise ValueError(f"unsupported collection level: {level}")
     from datetime import datetime, timezone
     import uuid
     from ..fingerprint import MultisetDigest, FINGERPRINT_VERSION

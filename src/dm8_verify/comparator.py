@@ -11,7 +11,13 @@ def _item(status: str, before: Any = None, after: Any = None, detail: str | None
     return result
 
 
-def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+VALIDATION_LEVELS = {"ROW_COUNT", "DATA_ONLY", "FULL"}
+
+
+def compare_baselines(before: dict[str, Any], after: dict[str, Any], level: str = "FULL") -> dict[str, Any]:
+    level = level.upper()
+    if level not in VALIDATION_LEVELS:
+        raise ValueError(f"unsupported validation level: {level}")
     differences: list[dict[str, Any]] = []
     incomplete: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -32,7 +38,10 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str
             differences.append(table_results[name])
             continue
         checks: dict[str, Any] = {}
-        for label, key in (("row_count", "row_count"), ("primary_key", "primary_key_fingerprint"), ("data", "data_fingerprint")):
+        checks_to_run = [("row_count", "row_count")]
+        if level in {"DATA_ONLY", "FULL"}:
+            checks_to_run.extend([("primary_key", "primary_key_fingerprint"), ("data", "data_fingerprint")])
+        for label, key in checks_to_run:
             lval, rval = left.get(key), right.get(key)
             if lval is None or rval is None:
                 checks[label] = _item("INCOMPLETE", lval, rval, "evidence not collected")
@@ -42,7 +51,8 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str
             else:
                 checks[label] = _item("MISMATCH", lval, rval)
                 differences.append({"table": name, "check": label, "status": "MISMATCH", "before": lval, "after": rval})
-        for label, key in (("columns", "column_metadata"), ("constraints", "constraint_metadata"), ("indexes", "index_metadata")):
+        metadata_checks = (("columns", "column_metadata"), ("constraints", "constraint_metadata"), ("indexes", "index_metadata")) if level == "FULL" else ()
+        for label, key in metadata_checks:
             lval, rval = left.get(key), right.get(key)
             if lval is None or rval is None or (isinstance(lval, dict) and lval.get("status") in {"NOT_COLLECTED", "UNAVAILABLE"}) or (isinstance(rval, dict) and rval.get("status") in {"NOT_COLLECTED", "UNAVAILABLE"}):
                 checks[label] = _item("INCOMPLETE", lval, rval, "metadata not collected")
@@ -53,6 +63,8 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str
                 checks[label] = _item("MISMATCH", lval, rval)
                 differences.append({"table": name, "check": label, "status": "MISMATCH", "before": lval, "after": rval})
         lval, rval = left.get("aggregate_statistics"), right.get("aggregate_statistics")
+        if level != "FULL":
+            lval = rval = {"status": "SKIPPED", "level": level}
         if lval is None or rval is None or (isinstance(lval, dict) and lval.get("status") in {"NOT_COLLECTED", "UNAVAILABLE"}) or (isinstance(rval, dict) and rval.get("status") in {"NOT_COLLECTED", "UNAVAILABLE"}):
             checks["aggregates"] = _item("INCOMPLETE", lval, rval, "aggregate statistics not collected")
             incomplete.append({"table": name, "check": "aggregates"})
@@ -78,7 +90,7 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str
     if errors and not differences:
         status = "ERROR"
     return {
-        "schema_version": "1.0", "comparison_version": "1.0",
+        "schema_version": "1.0", "comparison_version": "1.0", "validation_level": level,
         "before_source_type": before.get("source_type"), "after_source_type": after.get("source_type"),
         "cross_source": cross_source, "status": status,
         "table_results": table_results, "differences": differences, "incomplete": incomplete, "errors": errors,

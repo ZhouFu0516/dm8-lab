@@ -50,7 +50,7 @@ def command_collect_source(args: argparse.Namespace) -> int:
 def command_compare(args: argparse.Namespace) -> int:
     try:
         before, after = json.loads(args.before.read_text(encoding="utf-8")), json.loads(args.after.read_text(encoding="utf-8"))
-        comparison = compare_baselines(before, after)
+        comparison = compare_baselines(before, after, level=getattr(args, "level", "FULL"))
         write_comparison_outputs(comparison, args.output)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"compare error: {exc}", file=sys.stderr)
@@ -63,10 +63,17 @@ def command_collect_db(args: argparse.Namespace) -> int:
     try:
         config = json.loads(args.db_config.read_text(encoding="utf-8"))
         tables = load_config(args.tables_config)["tables"]
-        baseline = collect_dm8(config, tables, source_type=args.source_type)
+        baseline = collect_dm8(config, tables, source_type=args.source_type, level=args.level)
         if args.output.exists() and any(args.output.iterdir()):
             raise ValueError(f"output directory is not empty: {args.output}")
         write_baseline_outputs(baseline, args.output)
+        if args.level == "ROW_COUNT":
+            import csv
+            with (args.output / "table_counts.csv").open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(["schema_name", "table_name", "row_count"])
+                for name, table in baseline.get("tables", {}).items():
+                    writer.writerow([baseline.get("schema_name"), name, table.get("row_count")])
     except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
         print(f"collect-db error: {exc}", file=sys.stderr)
         return EXIT_INPUT
@@ -131,12 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
     db.add_argument("--db-config", type=Path, required=True)
     db.add_argument("--tables-config", type=Path, default=root / "config/tables.json")
     db.add_argument("--source-type", choices=("DATABASE", "RESTORED"), default="DATABASE", help="证据来源标签；恢复目标使用 RESTORED")
+    db.add_argument("--level", choices=("ROW_COUNT", "DATA_ONLY", "FULL"), default="DATA_ONLY")
     db.add_argument("--output", type=Path, required=True)
     db.set_defaults(func=command_collect_db)
     compare = sub.add_parser("compare", help="比较两个基线 JSON")
     compare.add_argument("--before", type=Path, required=True)
     compare.add_argument("--after", type=Path, required=True)
     compare.add_argument("--output", type=Path, required=True, help="输出文件前缀")
+    compare.add_argument("--level", choices=("ROW_COUNT", "DATA_ONLY", "FULL"), default="FULL")
     compare.set_defaults(func=command_compare)
     demo = sub.add_parser("demo", help="执行 SOURCE 正常、异常和证据不足演示")
     demo.add_argument("--root", type=Path, default=root)

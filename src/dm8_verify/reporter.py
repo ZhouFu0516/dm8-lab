@@ -23,7 +23,7 @@ def write_baseline_outputs(baseline: dict[str, Any], output_dir: Path) -> None:
 
 def comparison_markdown(comparison: dict[str, Any]) -> str:
     lines = [
-        "# DM8 一致性比较报告", "", f"- 总体状态：`{comparison.get('status')}`",
+        "# DM8 一致性比较报告", "", f"- 总体状态：`{comparison.get('status')}`", f"- 验证等级：`{comparison.get('validation_level', 'FULL')}`",
         f"- 来源：`{comparison.get('before_source_type')}` → `{comparison.get('after_source_type')}`",
         f"- 跨来源：`{comparison.get('cross_source')}`", "", "| 表 | 行数 | 主键摘要 | 数据摘要 | 结构 |", "|---|---|---|---|---|",
     ]
@@ -43,6 +43,15 @@ def write_comparison_outputs(comparison: dict[str, Any], output_prefix: Path) ->
     output_prefix.with_suffix(".md").write_text(comparison_markdown(comparison), encoding="utf-8")
     with output_prefix.with_suffix(".csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream)
+        if comparison.get("validation_level") == "ROW_COUNT":
+            writer.writerow(["table_name", "before_count", "after_count", "difference", "status"])
+            for table, checks in comparison.get("table_results", {}).items():
+                result = checks.get("row_count", {})
+                before = result.get("before")
+                after = result.get("after")
+                difference = after - before if isinstance(before, int) and isinstance(after, int) else ""
+                writer.writerow([table, before, after, difference, "MATCH" if result.get("status") == "MATCH" else result.get("status")])
+            return
         writer.writerow(["table", "check", "status", "detail"])
         for table, checks in comparison.get("table_results", {}).items():
             for check, result in checks.items():
