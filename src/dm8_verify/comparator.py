@@ -42,6 +42,12 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any], level: str 
                 differences.append(table_results[name])
             continue
         checks: dict[str, Any] = {}
+        for side, item in (("before", left), ("after", right)):
+            if item.get("collection_status") == "ERROR":
+                item_errors = item.get("errors") or ["table collection status is ERROR"]
+                errors.extend(f"{side} {name}: {error}" for error in item_errors)
+            elif item.get("errors"):
+                errors.extend(f"{side} {name}: {error}" for error in item["errors"])
         checks_to_run = [("row_count", "row_count")]
         if level in {"DATA_ONLY", "FULL"}:
             checks_to_run.extend([("primary_key", "primary_key_fingerprint"), ("data", "data_fingerprint")])
