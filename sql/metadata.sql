@@ -1,0 +1,3 @@
+-- Deliberately a review template, not an executable DM8 catalog query.
+-- DM8 system-view names and columns must be verified against the target version.
+-- Required evidence: tables, columns/types/nullability, PK/FK/UNIQUE/CHECK and indexes.

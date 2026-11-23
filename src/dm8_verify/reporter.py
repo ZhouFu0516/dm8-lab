@@ -1,0 +1,49 @@
+"""JSON, CSV and Markdown output writers."""
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+
+def write_json(path: Path, value: Any) -> None:
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_baseline_outputs(baseline: dict[str, Any], output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / "baseline.json", baseline)
+    with (output_dir / "tables.csv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["table_name", "row_count", "collection_status", "primary_key_sha256", "data_sha256"])
+        for name, table in baseline.get("tables", {}).items():
+            writer.writerow([name, table.get("row_count"), table.get("collection_status"), (table.get("primary_key_fingerprint") or {}).get("sha256"), (table.get("data_fingerprint") or {}).get("sha256")])
+
+
+def comparison_markdown(comparison: dict[str, Any]) -> str:
+    lines = [
+        "# DM8 一致性比较报告", "", f"- 总体状态：`{comparison.get('status')}`",
+        f"- 来源：`{comparison.get('before_source_type')}` → `{comparison.get('after_source_type')}`",
+        f"- 跨来源：`{comparison.get('cross_source')}`", "", "| 表 | 行数 | 主键摘要 | 数据摘要 | 结构 |", "|---|---|---|---|---|",
+    ]
+    for name, checks in comparison.get("table_results", {}).items():
+        lines.append(f"| {name} | {checks.get('row_count', {}).get('status')} | {checks.get('primary_key', {}).get('status')} | {checks.get('data', {}).get('status')} | {checks.get('columns', {}).get('status')} |")
+    lines.extend(["", f"差异数：{len(comparison.get('differences', []))}", f"证据不足项：{len(comparison.get('incomplete', []))}", f"错误数：{len(comparison.get('errors', []))}"])
+    if comparison.get("differences"):
+        lines.extend(["", "## 差异", ""] + [f"- `{item}`" for item in comparison["differences"]])
+    if comparison.get("incomplete"):
+        lines.extend(["", "## 未完成证据", ""] + [f"- `{item}`" for item in comparison["incomplete"]])
+    return "\n".join(lines) + "\n"
+
+
+def write_comparison_outputs(comparison: dict[str, Any], output_prefix: Path) -> None:
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    write_json(output_prefix.with_suffix(".json"), comparison)
+    output_prefix.with_suffix(".md").write_text(comparison_markdown(comparison), encoding="utf-8")
+    with output_prefix.with_suffix(".csv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["table", "check", "status", "detail"])
+        for table, checks in comparison.get("table_results", {}).items():
+            for check, result in checks.items():
+                writer.writerow([table, check, result.get("status"), result.get("detail", "")])

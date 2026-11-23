@@ -1,0 +1,6 @@
+-- Read-only aggregate template. Validate DM8 syntax and numeric precision before use.
+SELECT EFFECTIVE_DATE, COUNT(*) AS ROW_COUNT,
+       SUM(BASE_PAY) AS BASE_TOTAL, SUM(BONUS_PAY) AS BONUS_TOTAL
+FROM HR_TEST.SALARIES
+GROUP BY EFFECTIVE_DATE
+ORDER BY EFFECTIVE_DATE;
