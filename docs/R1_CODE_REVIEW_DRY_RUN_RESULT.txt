@@ -1,0 +1,10 @@
+Command:
+
+```bash
+PYTHONPATH=src python3 -m dm8_mvp restore --config config/mvp-r1.example.json --dry-run > /tmp/r1-review-dry.XXXXXX
+bash -n /tmp/r1-review-dry.XXXXXX
+```
+
+Result: `PASS` (`bash -n` exit code 0). Generated script size: 6738 bytes.
+
+No VM, QGA, database, disk, RESTORE, RECOVER, dminit, or BACKUP operation was executed.

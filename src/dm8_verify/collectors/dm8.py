@@ -8,6 +8,7 @@ import tempfile
 from typing import Any
 
 from ..fingerprint import canonical_bytes, normalize
+from .disql_results import result_lines
 
 BEGIN_PREFIX = "__DM8_VERIFY_BEGIN__"
 END_PREFIX = "__DM8_VERIFY_END__"
@@ -99,14 +100,22 @@ def collect_dm8_counts(config: dict[str, Any], tables: list[dict[str, Any]], sou
         raise RuntimeError(f"failed to execute COUNT(*) query: {type(exc).__name__}: {exc}") from exc
     if completed.returncode != 0:
         raise RuntimeError(f"disql exited with status {completed.returncode}; database output suppressed")
+    return count_baseline_from_output(completed.stdout, config, tables, source_type)
+
+
+def count_baseline_from_output(output: str, config: dict, tables: list[dict], source_type: str = 'DATABASE') -> dict:
+    """Shared strict parser/baseline builder for local and QGA guest collection."""
+    from datetime import datetime, timezone
+    import uuid
 
     counts: dict[str, int] = {}
     current: str | None = None
     values: list[str] = []
     expected = {table["name"].upper() for table in tables}
-    for raw in completed.stdout.splitlines():
-        line = raw.strip()
+    for line in result_lines(output):
         if line.startswith(COUNT_BEGIN_PREFIX):
+            if current is not None:
+                raise RuntimeError('nested or unterminated COUNT section')
             current = line[len(COUNT_BEGIN_PREFIX):].strip().upper()
             if current not in expected or current in counts:
                 raise RuntimeError(f"unexpected or duplicate COUNT(*) section: {current}")
@@ -124,7 +133,7 @@ def collect_dm8_counts(config: dict[str, Any], tables: list[dict[str, Any]], sou
         if current is not None and line:
             # Disql emits diagnostics as text too. Requiring exactly one numeric
             # row per query prevents a SQL error from masquerading as an empty table.
-            values.append(line)
+            values.append(re.sub(r'^1\s+(?=\d+$)', '', line))
     if current is not None or counts.keys() != expected:
         missing = expected - counts.keys()
         raise RuntimeError(f"COUNT(*) output incomplete; missing tables: {', '.join(sorted(missing))}")

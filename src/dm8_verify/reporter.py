@@ -22,6 +22,21 @@ def write_baseline_outputs(baseline: dict[str, Any], output_dir: Path) -> None:
 
 
 def comparison_markdown(comparison: dict[str, Any]) -> str:
+    if comparison.get("validation_level") == "ROW_COUNT":
+        lines = [
+            "# DM8 行数比较报告", "", f"- 总体状态：`{comparison.get('status')}`",
+            "- 验证等级：`ROW_COUNT`",
+            f"- 来源：`{comparison.get('before_source_type')}` → `{comparison.get('after_source_type')}`",
+            "- 证据边界：仅比较逐表记录数，不代表数据内容一致。", "",
+            "| 表 | 比较状态 | 前次行数 | 本次行数 | 差值 |", "|---|---|---:|---:|---:|",
+        ]
+        for name, checks in comparison.get("table_results", {}).items():
+            result = checks.get("row_count", {})
+            before, after = result.get("before"), result.get("after")
+            difference = after - before if isinstance(before, int) and isinstance(after, int) else "—"
+            lines.append(f"| {name} | {result.get('status')} | {before if before is not None else '—'} | {after if after is not None else '—'} | {difference} |")
+        lines.extend(["", f"差异数：{len(comparison.get('differences', []))}", f"证据不足项：{len(comparison.get('incomplete', []))}", f"错误数：{len(comparison.get('errors', []))}"])
+        return "\n".join(lines) + "\n"
     lines = [
         "# DM8 一致性比较报告", "", f"- 总体状态：`{comparison.get('status')}`", f"- 验证等级：`{comparison.get('validation_level', 'FULL')}`",
         f"- 来源：`{comparison.get('before_source_type')}` → `{comparison.get('after_source_type')}`",

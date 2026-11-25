@@ -1,0 +1,13 @@
+{
+  "guest": "dm8-restore-c",
+  "backupset": "/data/restore-input/DM8RT01_FULL_20261124",
+  "target": "/data/mvp60/DM8RT01_R5",
+  "mapping": "/data/mvp60/restore-paths-dm8rt01-r5.txt",
+  "logdir": "/data/mvp60/mvp-logs-dm8rt01-r5",
+  "db_name": "DM8RT01_R5",
+  "instance_name": "DM8RT01",
+  "port": 15242,
+  "timeout": 900,
+  "report_dir": "outputs/mvp-r1"
+}
+

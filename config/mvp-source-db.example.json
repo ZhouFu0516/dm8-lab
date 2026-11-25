@@ -1,0 +1,10 @@
+{
+  "username": "SYSDBA",
+  "host": "192.168.241.11",
+  "port": 5236,
+  "service": "DM8RT01",
+  "schema_name": "HR_TEST",
+  "password_env": "DM8_VERIFY_PASSWORD",
+  "disql_path": "/opt/dmdbms/bin/disql",
+  "timeout_seconds": 120
+}
