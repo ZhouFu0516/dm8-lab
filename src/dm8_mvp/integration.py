@@ -480,21 +480,26 @@ def main(argv: list[str] | None = None) -> int:
                 details["transfer"]=transfer_manifest(cfg,files)
                 details["target_sha256"]=verify_target_hashes(cfg,hashes)
                 details["stages"]["transfer"]="PASS"
-                stage="restore"; restore_rc=execute_r1(cfg); details["restore_exitcode"]=restore_rc
+                stage="restore"
+                # Once dispatched, an absent result is not evidence of non-execution.
+                details["stages"]["restore"]="BLOCKED"
+                restore_rc=execute_r1(cfg); details["restore_exitcode"]=restore_rc
                 r1_path=Path(cfg["r1_report_dir"])/f"{run_id}.json"
                 if not r1_path.is_file(): raise RuntimeError("R1 this-run report missing")
                 r1=json.loads(r1_path.read_text(encoding="utf-8")); details["r1_report"]=r1
                 if r1.get("run_id") != run_id:
                     raise RuntimeError("R1 report run_id mismatch")
-                if r1.get("status") == "BLOCKED":
-                    details["stages"]["restore"]="BLOCKED"
-                    raise I1StageError("BLOCKED","R1 reported BLOCKED; see run-specific R1 report")
+                if r1.get("status") in ("FAIL", "BLOCKED", "INCOMPLETE"):
+                    r1_status=r1["status"]
+                    details["stages"]["restore"]=r1_status
+                    raise I1StageError(r1_status,f"R1 exited {restore_rc} with status {r1_status}")
                 if restore_rc != 0:
                     raise RuntimeError(f"R1 exited {restore_rc} with status {r1.get('status')}")
                 counts=r1.get("counts"); expected={"LOCATIONS","DEPARTMENTS","JOBS","EMPLOYEES","JOB_HISTORY","SALARIES"}
                 if r1.get("status")!="PASS" or r1.get("verification")!="ROW_COUNT_OBSERVED" or not isinstance(counts,dict) or set(counts)!=expected or r1.get("comparison")!="NOT EXECUTED":
                     raise ValueError("R1 report missing matching PASS, OPEN/NORMAL six-count evidence")
                 details["stages"]["restore"]="PASS"
+                stage="row_count_compare"
                 compare=compare_row_count_baselines(source_before,restored_count_baseline(counts)); details["restored_comparison"]=compare
                 details["stages"]["row_count_compare"]=compare.get("status","INCOMPLETE")
                 status="PASS" if compare.get("status")=="PASS" else "FAIL"
@@ -507,10 +512,11 @@ def main(argv: list[str] | None = None) -> int:
             if exc.guest_result.get("unknown"):
                 details["failure"]["guest_outcome"]="UNKNOWN; no retry"
     except (OSError,RuntimeError,ValueError,KeyError,TypeError,json.JSONDecodeError) as exc:
-        if status not in ("BLOCKED","INCOMPLETE"):
-            status="BLOCKED" if stage in ("readonly_preflight","source_before") else "FAIL"
-        if stage == "source_after": status="INCOMPLETE"
+        status=("BLOCKED" if stage in ("readonly_preflight","source_before") else
+                "INCOMPLETE" if stage == "source_after" else "FAIL")
         details["failure"]={"stage":stage,"type":type(exc).__name__,"reason":str(exc)}
+    if "failure" in details and stage in ("restore", "row_count_compare"):
+        details["stages"][stage]=status
     report=write_report(cfg,status,details)
     print(json.dumps({"status":status,"report":str(report),"run_id":run_id},ensure_ascii=False))
     return 0 if status=="PASS" else 3 if status=="INCOMPLETE" else 2 if status=="BLOCKED" else 1

@@ -229,6 +229,7 @@ runuser -u dmdba -- "$DMR" USE_AP=2 CTLSTMT="RESTORE DATABASE '$DMINI' REUSE DMI
 echo 'STAGE RECOVER'
 runuser -u dmdba -- "$DMR" USE_AP=2 CTLSTMT="RECOVER DATABASE '$DMINI' FROM BACKUPSET '$BACKUP'" >"$LOGDIR/recover.log" 2>&1 || {{ cat "$LOGDIR/recover.log"; fail recover; }}
 runuser -u dmdba -- "$DMR" USE_AP=2 CTLSTMT="RECOVER DATABASE '$DMINI' UPDATE DB_MAGIC" >"$LOGDIR/update-magic.log" 2>&1 || {{ cat "$LOGDIR/update-magic.log"; fail update_magic; }}
+echo 'MVP_PHYSICAL_RECOVERY_PASS'
 echo 'STAGE START-VERIFY'
 sed -i -E 's/^[[:space:]]*MAL_INI[[:space:]]*=.*/MAL_INI = 0/; s/^[[:space:]]*ARCH_INI[[:space:]]*=.*/ARCH_INI = 0/; s/^[[:space:]]*ENABLE_LOCAL_OSAUTH[[:space:]]*=.*/ENABLE_LOCAL_OSAUTH = 1/; s/^[[:space:]]*ALTER_MODE_STATUS[[:space:]]*=.*/ALTER_MODE_STATUS = 2/' "$DMINI" || fail 'isolation flags'
 sed -i -E "s/^[[:space:]]*PORT_NUM[[:space:]]*=.*/PORT_NUM = $PORT/" "$DMINI" || fail 'target port'
@@ -325,6 +326,16 @@ def main(argv: list[str] | None = None) -> int:
         "counts": counts,
         "stdout": stdout,
         "stderr": stderr,
+        "stages": {
+            "physical_recovery": (
+                "PASS" if "MVP_PHYSICAL_RECOVERY_PASS" in stdout.splitlines() else
+                "BLOCKED" if status == "BLOCKED" else
+                "FAIL" if any(line in ("STAGE RESTORE", "STAGE RECOVER") for line in stdout.splitlines()) else
+                "NOT EXECUTED"
+            ),
+            "verification": status if "STAGE START-VERIFY" in stdout.splitlines() else
+                            "BLOCKED" if status == "BLOCKED" else "NOT EXECUTED",
+        },
     }
     (report_dir / f"{run_id}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if status == "PASS":
