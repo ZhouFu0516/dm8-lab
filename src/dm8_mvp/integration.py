@@ -6,6 +6,7 @@ and uses the already-tested QGA runner; it is not invoked by tests.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import shlex
 import re
@@ -15,7 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import uuid
-from .guest_runtime import guest_main
+from . import guest_runtime
+from dm8_verify.collectors import disql_results
 from dm8_verify.collectors.dm8 import count_baseline_from_output
 from dm8_verify.collectors.disql_results import parse_primary_preflight, parse_instance_status
 
@@ -25,9 +27,10 @@ from .runner import QgaRunner, QgaUnknown
 
 
 class I1StageError(RuntimeError):
-    def __init__(self, status: str, message: str):
+    def __init__(self, status: str, message: str, guest_result: dict | None = None):
         super().__init__(message)
         self.status = status
+        self.guest_result = guest_result
 
 
 def validate_config(cfg: dict[str, Any]) -> None:
@@ -141,9 +144,21 @@ def six_count_queries() -> list[str]:
 
 
 def build_guest_request(payload: dict[str, Any], label: str) -> str:
+    """Send the fixed runtime and parser sources; require no installed guest packages."""
     import base64
-    script = ("import json\nfrom dm8_mvp.guest_runtime import guest_main\n"
-              + "guest_main(json.loads(__PAYLOAD__))\n").replace("__PAYLOAD__", repr(json.dumps(payload)))
+    script = "\n".join([
+        "import json, sys, types",
+        "for name in ('dm8_verify', 'dm8_verify.collectors'):",
+        "    package = types.ModuleType(name)",
+        "    package.__path__ = []",
+        "    sys.modules[name] = package",
+        "parser = types.ModuleType('dm8_verify.collectors.disql_results')",
+        "sys.modules[parser.__name__] = parser",
+        f"exec(compile({inspect.getsource(disql_results)!r}, 'disql_results.py', 'exec'), parser.__dict__)",
+        "runtime = {'__name__': 'dm8_mvp.guest_runtime'}",
+        f"exec(compile({inspect.getsource(guest_runtime)!r}, 'guest_runtime.py', 'exec'), runtime)",
+        f"runtime['guest_main'](json.loads({json.dumps(payload)!r}))",
+    ])
     encoded = base64.b64encode(script.encode()).decode("ascii")
     return f"python3 -c 'import base64;exec(base64.b64decode(\"{encoded}\"))'"
 
@@ -188,7 +203,7 @@ def build_i1_dry_run(cfg: dict[str, Any]) -> str:
         f"dmrman USE_AP=2 CTLSTMT=CHECK BACKUPSET '{run_cfg['backupset']}' LEVEL 1",
         "# PRIMARY execution request (not sent):", build_primary_script(run_cfg),
         "# TRANSFER PLAN:", build_transfer_plan(run_cfg),
-        "# R1 config (not executed):", json.dumps(derived_restore_config(run_cfg), ensure_ascii=False, indent=2),
+        "# R1 restore config (not executed):", json.dumps(derived_restore_config(run_cfg), ensure_ascii=False, indent=2),
     ])
 
 
@@ -224,14 +239,22 @@ def restore_probe_payload(cfg: dict[str, Any]) -> dict[str, Any]:
 
 def invoke_guest(domain: str, payload: dict[str, Any], timeout: int = 900):
     result = QgaRunner(domain, timeout).run(build_guest_request(payload, payload.get("operation","guest-op")))
-    if result.exitcode != 0:
-        raise RuntimeError(f"{domain} guest operation failed rc={result.exitcode}: {result.stderr}")
+    if not result.exited or result.exitcode is None:
+        raise QgaUnknown(f"{domain} guest operation has no final exit code; no retry")
     try:
         value=json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{domain} guest result was not JSON") from exc
-    if value.get("status") != "PASS":
-        raise RuntimeError(f"{domain} gate failed: {value.get('reason',value.get('status'))}")
+        raise ValueError(f"{domain} guest result was not JSON (guest exitcode={result.exitcode})") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{domain} guest result was not an object")
+    if value.get("unknown"):
+        raise QgaUnknown(f"{domain}: {value.get('reason', 'guest command outcome unknown')}; no retry")
+    if value.get("status") != "PASS" or result.exitcode != 0:
+        status = "BLOCKED" if value.get("status") == "BLOCKED" else "FAIL"
+        raise I1StageError(status, f"{domain}: {value.get('reason', value.get('status'))} "
+                           f"(guest exitcode={result.exitcode}, tool exitcode={value.get('exitcode')})", value)
+    if payload.get("operation") == "sql" and value.get("exitcode") != 0:
+        raise I1StageError("FAIL", f"{domain} SQL result has no successful tool exit code", value)
     return value
 
 
@@ -264,10 +287,13 @@ def transfer_manifest(cfg: dict[str, Any], files: list[tuple[str, int]]) -> list
     for name, size in files:
         source = str(Path(cfg["backupset"]) / name)
         target = str(Path(cfg["restore_input"]) / name)
-        completed = subprocess.run(
-            ["python3", str(tool), cfg["primary_guest"], source, cfg.get("restore_guest", "dm8-restore-c"), target, "--chunk-size", str(cfg.get("chunk_size", 64 * 1024))],
-            capture_output=True, text=True, check=False, timeout=int(cfg.get("transfer_timeout", 900)),
-        )
+        try:
+            completed = subprocess.run(
+                ["python3", str(tool), cfg["primary_guest"], source, cfg.get("restore_guest", "dm8-restore-c"), target, "--chunk-size", str(cfg.get("chunk_size", 64 * 1024))],
+                capture_output=True, text=True, check=False, timeout=int(cfg.get("transfer_timeout", 900)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise QgaUnknown(f"transfer timed out for {name}; guest file state unknown; no retry") from exc
         if completed.returncode != 0:
             raise RuntimeError(f"transfer failed for {name}: {completed.stderr.strip()}")
         copied = re.search(r"copied_bytes=(\d+)", completed.stdout)
@@ -460,6 +486,8 @@ def main(argv: list[str] | None = None) -> int:
         status="BLOCKED";details["failure"]={"stage":stage,"type":type(exc).__name__,"reason":str(exc),"guest_outcome":"UNKNOWN; no retry"}
     except I1StageError as exc:
         status=exc.status;details["failure"]={"stage":stage,"type":type(exc).__name__,"reason":str(exc)}
+        if exc.guest_result is not None:
+            details["failure"]["guest_result"]=exc.guest_result
     except (OSError,RuntimeError,ValueError,KeyError,TypeError,json.JSONDecodeError) as exc:
         if status not in ("BLOCKED","INCOMPLETE"):
             status="BLOCKED" if stage in ("readonly_preflight","source_before") else "FAIL"

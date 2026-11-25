@@ -135,11 +135,13 @@ DMINIT=/opt/dmdbms/bin/dminit
 DMINI="$TARGET/dm.ini"
 fail() {{ echo "FAIL:$*"; exit 10; }}
 safe_mapping() {{
+  double_quoted='^"(.*)"$'
+  single_quoted="^'(.*)'$"
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(path|file)[A-Za-z0-9_]*[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
     value="${{BASH_REMATCH[2]}}"
     [ -z "$value" ] && continue
-    if [[ "$value" =~ ^"(.*)"$ ]]; then value="${{BASH_REMATCH[1]}}"; elif [[ "$value" =~ ^'(.*)'$ ]]; then value="${{BASH_REMATCH[1]}}"; fi
+    if [[ "$value" =~ $double_quoted ]]; then value="${{BASH_REMATCH[1]}}"; elif [[ "$value" =~ $single_quoted ]]; then value="${{BASH_REMATCH[1]}}"; fi
     [[ "$value" = /* ]] || fail "mapping path is not absolute"
     resolved=$(realpath -m -- "$value") || fail "cannot resolve mapping path"
     case "$resolved" in "$TARGET"/*) ;; *) fail "mapping path escapes target: $value";; esac

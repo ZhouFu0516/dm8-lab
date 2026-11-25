@@ -1,0 +1,145 @@
+I1 four-fix offline validation. Base: 968d468. Date: 2026-11-25.
+VM/QGA/database commands were mocked; no real E2E was executed.
+FAIL/INCOMPLETE JSON lines below are expected outputs from negative test fixtures.
+
+$ PYTHONPATH=src python3 -B -m unittest discover -s tests -v
+test_collects_rows_and_manifest (test_core.CollectorTests.test_collects_rows_and_manifest) ... ok
+test_constraint_change_is_difference (test_core.CollectorTests.test_constraint_change_is_difference) ... ok
+test_delete_row_detected (test_core.CollectorTests.test_delete_row_detected) ... ok
+test_duplicate_primary_key_is_error (test_core.CollectorTests.test_duplicate_primary_key_is_error) ... ok
+test_field_count_error (test_core.CollectorTests.test_field_count_error) ... ok
+test_invalid_config_rejected (test_core.CollectorTests.test_invalid_config_rejected) ... ok
+test_manifest_discrepancy_reported (test_core.CollectorTests.test_manifest_discrepancy_reported) ... ok
+test_missing_evidence_is_incomplete (test_core.CollectorTests.test_missing_evidence_is_incomplete) ... ok
+test_missing_file_is_error (test_core.CollectorTests.test_missing_file_is_error) ... ok
+test_primary_key_change_detected (test_core.CollectorTests.test_primary_key_change_detected) ... ok
+test_same_rows_different_order_have_same_digest (test_core.CollectorTests.test_same_rows_different_order_have_same_digest) ... ok
+test_single_field_change_same_count_detected (test_core.CollectorTests.test_single_field_change_same_count_detected) ... ok
+test_aggregate_change_is_difference (test_core.ComparatorTests.test_aggregate_change_is_difference) ... ok
+test_cli_compare_exit_codes (test_core.ComparatorTests.test_cli_compare_exit_codes) ... ok
+test_cross_source_never_passes (test_core.ComparatorTests.test_cross_source_never_passes) ... ok
+test_data_only_requires_data_evidence (test_core.ComparatorTests.test_data_only_requires_data_evidence) ... ok
+test_database_metadata_not_collected_incomplete (test_core.ComparatorTests.test_database_metadata_not_collected_incomplete) ... ok
+test_fingerprint_version_mismatch_incomplete (test_core.ComparatorTests.test_fingerprint_version_mismatch_incomplete) ... ok
+test_full_requires_indexes (test_core.ComparatorTests.test_full_requires_indexes) ... ok
+test_missing_table_fails (test_core.ComparatorTests.test_missing_table_fails) ... ok
+test_row_count_comparison_csv_has_requested_columns (test_core.ComparatorTests.test_row_count_comparison_csv_has_requested_columns) ... ok
+test_row_count_level_ignores_uncollected_content (test_core.ComparatorTests.test_row_count_level_ignores_uncollected_content) ... ok
+test_count_script_selects_only_counts_and_refuses_errors (test_core.DisqlTests.test_count_script_selects_only_counts_and_refuses_errors) ... ok
+test_missing_database_client_is_clear_error (test_core.DisqlTests.test_missing_database_client_is_clear_error) ... ok
+test_online_collector_labels_restored_and_rejects_duplicate_keys (test_core.DisqlTests.test_online_collector_labels_restored_and_rejects_duplicate_keys) ... ok
+test_parser_handles_headers_and_markers (test_core.DisqlTests.test_parser_handles_headers_and_markers) ... ok
+test_parser_rejects_missing_section (test_core.DisqlTests.test_parser_rejects_missing_section) ... ok
+test_script_is_select_only_and_password_not_argv (test_core.DisqlTests.test_script_is_select_only_and_password_not_argv) ... ok
+test_multiset_is_order_independent (test_core.FingerprintTests.test_multiset_is_order_independent) ... ok
+test_mutation_changes_fingerprint (test_core.FingerprintTests.test_mutation_changes_fingerprint) ... ok
+test_null_and_empty_are_distinct (test_core.FingerprintTests.test_null_and_empty_are_distinct) ... ok
+test_b1_output_can_feed_existing_r1_config (test_mvp_backup.B1BackupTests.test_b1_output_can_feed_existing_r1_config) ... ok
+test_backup_statement_is_online_full_physical (test_mvp_backup.B1BackupTests.test_backup_statement_is_online_full_physical) ... ok
+test_check_parser_requires_success (test_mvp_backup.B1BackupTests.test_check_parser_requires_success) ... ok
+test_cli_dry_run (test_mvp_backup.B1BackupTests.test_cli_dry_run) ... ok
+test_dry_run_contains_all_stages (test_mvp_backup.B1BackupTests.test_dry_run_contains_all_stages) ... ok
+test_fixed_source_and_path_validation (test_mvp_backup.B1BackupTests.test_fixed_source_and_path_validation) ... ok
+test_preflight_requires_open_primary_and_archive (test_mvp_backup.B1BackupTests.test_preflight_requires_open_primary_and_archive) ... ok
+test_cli_run_defaults_to_dry_run (test_mvp_integration.I1IntegrationTests.test_cli_run_defaults_to_dry_run) ... ok
+test_execute_normal_path_mock_reaches_restore_and_comparison (test_mvp_integration.I1IntegrationTests.test_execute_normal_path_mock_reaches_restore_and_comparison) ... ok
+test_execute_primary_failure_stops_before_transfer (test_mvp_integration.I1IntegrationTests.test_execute_primary_failure_stops_before_transfer) ... ok
+test_fixed_restore_target_and_dry_run (test_mvp_integration.I1IntegrationTests.test_fixed_restore_target_and_dry_run) ... ok
+test_hash_manifest_parser (test_mvp_integration.I1IntegrationTests.test_hash_manifest_parser) ... ok
+test_manifest_parser_requires_backup_files (test_mvp_integration.I1IntegrationTests.test_manifest_parser_requires_backup_files) ... ok
+test_primary_script_reads_credential_and_checks_instance (test_mvp_integration.I1IntegrationTests.test_primary_script_reads_credential_and_checks_instance) ... ok
+test_r1_execute_switch_is_passed (test_mvp_integration.I1IntegrationTests.test_r1_execute_switch_is_passed) ... ok
+test_run_paths_are_unique_and_not_r5 (test_mvp_integration.I1IntegrationTests.test_run_paths_are_unique_and_not_r5) ... ok
+test_source_after_sql_error_or_timeout_stops_with_report (test_mvp_integration.I1IntegrationTests.test_source_after_sql_error_or_timeout_stops_with_report) ... ok
+test_source_instability_stops_before_transfer (test_mvp_integration.I1IntegrationTests.test_source_instability_stops_before_transfer) ... ok
+test_sql_protocol_contract_in_isolated_python (test_mvp_integration.I1IntegrationTests.test_sql_protocol_contract_in_isolated_python) ... ok
+test_transfer_plan_uses_qga_file_method (test_mvp_integration.I1IntegrationTests.test_transfer_plan_uses_qga_file_method) ... ok
+test_transfer_timeout_is_blocked_without_retry_or_restore (test_mvp_integration.I1IntegrationTests.test_transfer_timeout_is_blocked_without_retry_or_restore) ... ok
+test_agent_subprocess_timeout_is_unknown (test_mvp_restore.QgaRunnerTests.test_agent_subprocess_timeout_is_unknown) ... ok
+test_missing_exitcode_is_unknown (test_mvp_restore.QgaRunnerTests.test_missing_exitcode_is_unknown) ... ok
+test_nonzero_guest_exit_is_returned (test_mvp_restore.QgaRunnerTests.test_nonzero_guest_exit_is_returned) ... ok
+test_timeout_is_unknown (test_mvp_restore.QgaRunnerTests.test_timeout_is_unknown) ... ok
+test_marker_and_counts_without_open_normal_is_not_pass (test_mvp_restore.ReportStatusTests.test_marker_and_counts_without_open_normal_is_not_pass) ... ok
+test_marker_without_counts_is_incomplete_and_nonzero (test_mvp_restore.ReportStatusTests.test_marker_without_counts_is_incomplete_and_nonzero) ... ok
+test_missing_marker_is_nonzero_and_not_pass (test_mvp_restore.ReportStatusTests.test_missing_marker_is_nonzero_and_not_pass) ... ok
+test_count_output_is_observation_only (test_mvp_restore.RestorePlanTests.test_count_output_is_observation_only) ... ok
+test_count_output_rejects_incomplete (test_mvp_restore.RestorePlanTests.test_count_output_rejects_incomplete) ... ok
+test_count_output_requires_labels_and_rejects_duplicates (test_mvp_restore.RestorePlanTests.test_count_output_requires_labels_and_rejects_duplicates) ... ok
+test_dry_run_script_has_no_host_write_commands (test_mvp_restore.RestorePlanTests.test_dry_run_script_has_no_host_write_commands) ... ok
+test_example_config_is_valid (test_mvp_restore.RestorePlanTests.test_example_config_is_valid) ... ok
+test_generated_bash_mapping_guard_matches_python_on_path_fixtures (test_mvp_restore.RestorePlanTests.test_generated_bash_mapping_guard_matches_python_on_path_fixtures) ... ok
+test_guest_and_path_boundaries_rejected (test_mvp_restore.RestorePlanTests.test_guest_and_path_boundaries_rejected) ... ok
+test_mapping_guard_rejects_quoted_unquoted_dotdot_and_mirror (test_mvp_restore.RestorePlanTests.test_mapping_guard_rejects_quoted_unquoted_dotdot_and_mirror) ... ok
+test_protected_target_rejected (test_mvp_restore.RestorePlanTests.test_protected_target_rejected) ... ok
+test_script_has_guards_and_stages (test_mvp_restore.RestorePlanTests.test_script_has_guards_and_stages) ... ok
+
+----------------------------------------------------------------------
+Ran 69 tests in 1.415s
+
+OK
+{"status": "FAIL", "output": "/tmp/tmptlxn3sma/comparison"}
+{"status": "PASS", "output": "/tmp/tmptlxn3sma/same"}
+{"status": "FAIL", "report": "/tmp/tmpvymsxxp8/i1-20261125T081626.457362Z-51e8a608-i1.json", "run_id": "i1-20261125T081626.457362Z-51e8a608"}
+{"status": "INCOMPLETE", "report": "/tmp/tmpaaw_7e9w/i1-20261125T081626.992193Z-3f2a2ee4-i1.json", "run_id": "i1-20261125T081626.992193Z-3f2a2ee4"}
+
+$ PYTHONPATH=src python3 -B -m unittest tests.test_mvp_backup tests.test_mvp_restore tests.test_mvp_integration -v
+test_b1_output_can_feed_existing_r1_config (tests.test_mvp_backup.B1BackupTests.test_b1_output_can_feed_existing_r1_config) ... ok
+test_backup_statement_is_online_full_physical (tests.test_mvp_backup.B1BackupTests.test_backup_statement_is_online_full_physical) ... ok
+test_check_parser_requires_success (tests.test_mvp_backup.B1BackupTests.test_check_parser_requires_success) ... ok
+test_cli_dry_run (tests.test_mvp_backup.B1BackupTests.test_cli_dry_run) ... ok
+test_dry_run_contains_all_stages (tests.test_mvp_backup.B1BackupTests.test_dry_run_contains_all_stages) ... ok
+test_fixed_source_and_path_validation (tests.test_mvp_backup.B1BackupTests.test_fixed_source_and_path_validation) ... ok
+test_preflight_requires_open_primary_and_archive (tests.test_mvp_backup.B1BackupTests.test_preflight_requires_open_primary_and_archive) ... ok
+test_agent_subprocess_timeout_is_unknown (tests.test_mvp_restore.QgaRunnerTests.test_agent_subprocess_timeout_is_unknown) ... ok
+test_missing_exitcode_is_unknown (tests.test_mvp_restore.QgaRunnerTests.test_missing_exitcode_is_unknown) ... ok
+test_nonzero_guest_exit_is_returned (tests.test_mvp_restore.QgaRunnerTests.test_nonzero_guest_exit_is_returned) ... ok
+test_timeout_is_unknown (tests.test_mvp_restore.QgaRunnerTests.test_timeout_is_unknown) ... ok
+test_marker_and_counts_without_open_normal_is_not_pass (tests.test_mvp_restore.ReportStatusTests.test_marker_and_counts_without_open_normal_is_not_pass) ... ok
+test_marker_without_counts_is_incomplete_and_nonzero (tests.test_mvp_restore.ReportStatusTests.test_marker_without_counts_is_incomplete_and_nonzero) ... ok
+test_missing_marker_is_nonzero_and_not_pass (tests.test_mvp_restore.ReportStatusTests.test_missing_marker_is_nonzero_and_not_pass) ... ok
+test_count_output_is_observation_only (tests.test_mvp_restore.RestorePlanTests.test_count_output_is_observation_only) ... ok
+test_count_output_rejects_incomplete (tests.test_mvp_restore.RestorePlanTests.test_count_output_rejects_incomplete) ... ok
+test_count_output_requires_labels_and_rejects_duplicates (tests.test_mvp_restore.RestorePlanTests.test_count_output_requires_labels_and_rejects_duplicates) ... ok
+test_dry_run_script_has_no_host_write_commands (tests.test_mvp_restore.RestorePlanTests.test_dry_run_script_has_no_host_write_commands) ... ok
+test_example_config_is_valid (tests.test_mvp_restore.RestorePlanTests.test_example_config_is_valid) ... ok
+test_generated_bash_mapping_guard_matches_python_on_path_fixtures (tests.test_mvp_restore.RestorePlanTests.test_generated_bash_mapping_guard_matches_python_on_path_fixtures) ... ok
+test_guest_and_path_boundaries_rejected (tests.test_mvp_restore.RestorePlanTests.test_guest_and_path_boundaries_rejected) ... ok
+test_mapping_guard_rejects_quoted_unquoted_dotdot_and_mirror (tests.test_mvp_restore.RestorePlanTests.test_mapping_guard_rejects_quoted_unquoted_dotdot_and_mirror) ... ok
+test_protected_target_rejected (tests.test_mvp_restore.RestorePlanTests.test_protected_target_rejected) ... ok
+test_script_has_guards_and_stages (tests.test_mvp_restore.RestorePlanTests.test_script_has_guards_and_stages) ... ok
+test_cli_run_defaults_to_dry_run (tests.test_mvp_integration.I1IntegrationTests.test_cli_run_defaults_to_dry_run) ... ok
+test_execute_normal_path_mock_reaches_restore_and_comparison (tests.test_mvp_integration.I1IntegrationTests.test_execute_normal_path_mock_reaches_restore_and_comparison) ... ok
+test_execute_primary_failure_stops_before_transfer (tests.test_mvp_integration.I1IntegrationTests.test_execute_primary_failure_stops_before_transfer) ... ok
+test_fixed_restore_target_and_dry_run (tests.test_mvp_integration.I1IntegrationTests.test_fixed_restore_target_and_dry_run) ... ok
+test_hash_manifest_parser (tests.test_mvp_integration.I1IntegrationTests.test_hash_manifest_parser) ... ok
+test_manifest_parser_requires_backup_files (tests.test_mvp_integration.I1IntegrationTests.test_manifest_parser_requires_backup_files) ... ok
+test_primary_script_reads_credential_and_checks_instance (tests.test_mvp_integration.I1IntegrationTests.test_primary_script_reads_credential_and_checks_instance) ... ok
+test_r1_execute_switch_is_passed (tests.test_mvp_integration.I1IntegrationTests.test_r1_execute_switch_is_passed) ... ok
+test_run_paths_are_unique_and_not_r5 (tests.test_mvp_integration.I1IntegrationTests.test_run_paths_are_unique_and_not_r5) ... ok
+test_source_after_sql_error_or_timeout_stops_with_report (tests.test_mvp_integration.I1IntegrationTests.test_source_after_sql_error_or_timeout_stops_with_report) ... ok
+test_source_instability_stops_before_transfer (tests.test_mvp_integration.I1IntegrationTests.test_source_instability_stops_before_transfer) ... ok
+test_sql_protocol_contract_in_isolated_python (tests.test_mvp_integration.I1IntegrationTests.test_sql_protocol_contract_in_isolated_python) ... ok
+test_transfer_plan_uses_qga_file_method (tests.test_mvp_integration.I1IntegrationTests.test_transfer_plan_uses_qga_file_method) ... ok
+test_transfer_timeout_is_blocked_without_retry_or_restore (tests.test_mvp_integration.I1IntegrationTests.test_transfer_timeout_is_blocked_without_retry_or_restore) ... ok
+
+----------------------------------------------------------------------
+Ran 38 tests in 1.392s
+
+OK
+{"status": "FAIL", "report": "/tmp/tmpfabekmmv/i1-20261125T081626.458601Z-5358c206-i1.json", "run_id": "i1-20261125T081626.458601Z-5358c206"}
+{"status": "INCOMPLETE", "report": "/tmp/tmp1_bew9vp/i1-20261125T081626.987762Z-766e75f9-i1.json", "run_id": "i1-20261125T081626.987762Z-766e75f9"}
+
+Static checks and source preservation checks:
+PRIMARY request bash -n: PASS
+R1 dry-run bash -n: PASS
+Bundled PRIMARY request bytes: 19337
+Outer guest-exec JSON argument bytes: 25918
+Only local generation and bash -n were performed; no QGA or database calls.
+src/dm8_mvp/guest_runtime.py::probe: unchanged
+src/dm8_mvp/restore.py::validate_config: unchanged
+src/dm8_mvp/restore.py::_safe_path: unchanged
+src/dm8_mvp/restore.py::validate_mapping_text: unchanged
+src/dm8_mvp/runner.py: unchanged
+src/dm8_verify/comparator.py: unchanged
+config/mvp-b1.example.json: unchanged
+config/mvp-r1.example.json: unchanged

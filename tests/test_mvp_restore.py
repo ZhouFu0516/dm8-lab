@@ -2,6 +2,8 @@ import json
 import io
 import tempfile
 import unittest
+import shlex
+import subprocess
 from contextlib import redirect_stdout
 from unittest.mock import patch
 from pathlib import Path
@@ -91,6 +93,37 @@ class RestorePlanTests(unittest.TestCase):
         script = build_script(self.cfg)
         self.assertIn("safe_mapping", script)
         self.assertIn("realpath -m", script)
+
+    def test_generated_bash_mapping_guard_matches_python_on_path_fixtures(self):
+        script=build_script(self.cfg)
+        start=script.index("safe_mapping() {")
+        guard=script[start:script.index("\nsafe_guest_path()",start)]
+        cases=[
+            ('data_path = "/data/mvp/DM8MVP/MAIN.DBF"',True),
+            ("data_path = '/data/mvp/DM8MVP/MAIN.DBF'",True),
+            ('data_path = /data/mvp/DM8MVP/MAIN.DBF',True),
+            ('data_path = "/data/e7/MAIN.DBF"',False),
+            ('data_path = "/data/mvp/DM8MVP/../../e7/MAIN.DBF"',False),
+            ('data_path = "/data/mvp/DM8MVP_OTHER/MAIN.DBF"',False),
+            ('data_path = "/data/mvp/DM8MVP/MAIN.DBF"\nmirror_path = "/data/e7/MIRROR.DBF"',False),
+            ('data_path = "/data/mvp/DM8MVP/MAIN.DBF',False),
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            mapping=Path(td)/"mapping.txt"
+            for content,expected in cases:
+                with self.subTest(mapping=content):
+                    mapping.write_text(content+"\n")
+                    try:
+                        validate_mapping_text(content,self.cfg["target"])
+                        python_accepted=True
+                    except ValueError:
+                        python_accepted=False
+                    header=("set -u\nfail() { echo \"FAIL:$*\"; exit 10; }\n"
+                            f"TARGET={shlex.quote(self.cfg['target'])}\nMAPPING={shlex.quote(str(mapping))}\n")
+                    result=subprocess.run(["bash","-c",header+guard+"\nsafe_mapping\n"],
+                                          capture_output=True,text=True,timeout=5)
+                    self.assertEqual(python_accepted,expected)
+                    self.assertEqual(result.returncode==0,expected,result.stdout+result.stderr)
 
 
 class QgaRunnerTests(unittest.TestCase):

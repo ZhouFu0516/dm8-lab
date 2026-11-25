@@ -1,4 +1,4 @@
-"""Small self-contained guest operations used by I1; transported through QgaRunner.
+"""Guest operations bundled with their parser by I1 through QgaRunner.
 
 Only sql/probe operations are used by --preflight-only. No guest package install.
 """
@@ -12,7 +12,6 @@ import socket
 import stat
 import subprocess
 from dm8_verify.collectors.disql_results import check_sql_errors, parse_primary_preflight
-from dm8_verify.collectors.dm8 import count_baseline_from_output
 
 
 def scrub(text, password):
@@ -39,10 +38,19 @@ def sql_result(request):
                                  env=dict(os.environ, LD_LIBRARY_PATH='/opt/dmdbms/bin'))
     except subprocess.TimeoutExpired:
         # A timed-out BACKUP may still be running in the server; never retry.
-        return dict(exitcode=None, unknown=True, reason='DIsql timeout; database command outcome unknown')
+        return dict(status='BLOCKED', exitcode=None, unknown=True, stdout='', stderr='',
+                    reason='DIsql timeout; database command outcome unknown')
     output = scrub(process.stdout, password)
     errors = scrub(process.stderr, password)
-    return dict(exitcode=process.returncode, stdout=output, stderr=errors)
+    result = dict(status='PASS' if process.returncode == 0 else 'FAIL',
+                  exitcode=process.returncode, stdout=output, stderr=errors)
+    if process.returncode != 0:
+        result['reason'] = 'DIsql exited with status %s' % process.returncode
+    try:
+        check_sql_errors(output + '\n' + errors)
+    except ValueError as exc:
+        result.update(status='FAIL', reason=str(exc))
+    return result
 
 
 def nearest_existing(path):
@@ -120,8 +128,8 @@ def prepare_input(request):
 def primary(request):
     # Role/archive results are parsed before any mkdir or BACKUP.
     pre = sql_result(dict(request, queries=request['preflight_queries']))
-    if pre.get('unknown') or pre['exitcode'] != 0:
-        return dict(status='BLOCKED' if pre.get('unknown') else 'FAIL', preflight=pre)
+    if pre['status'] != 'PASS':
+        return dict(status=pre['status'], preflight=pre)
     parse_primary_preflight(pre['stdout'])
     volume_probe=probe(request)
     log = Path(request['logdir'])
@@ -134,7 +142,9 @@ def primary(request):
     result = sql_result(dict(request, queries=["BACKUP DATABASE FULL BACKUPSET '%s';" % backup]))
     (log / 'backup.log').write_text(result.get('stdout', '') + result.get('stderr', ''))
     if result.get('unknown'):
-        return dict(status='BLOCKED', backup=result)
+        return dict(status='BLOCKED', unknown=True, reason=result['reason'], backup=result)
+    if result['status'] != 'PASS':
+        return dict(status='FAIL', reason=result.get('reason'), backup=result)
     check_sql_errors(result['stdout'] + result['stderr'])
     if result['exitcode'] != 0 or not re.search(r'executed successfully', result['stdout'], re.I):
         return dict(status='FAIL', backup=result)
