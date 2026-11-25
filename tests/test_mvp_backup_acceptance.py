@@ -80,7 +80,8 @@ class BackupAcceptanceTests(unittest.TestCase):
                 report_dir.mkdir(parents=True)
                 (report_dir / f"{run['run_id']}.json").write_text(json.dumps(dict(
                     run_id=run["run_id"], status="PASS", verification="ROW_COUNT_OBSERVED",
-                    comparison="NOT EXECUTED", counts=counts)))
+                    comparison="NOT EXECUTED", counts=counts,
+                    stages=dict(physical_recovery="PASS", verification="PASS"))))
                 return 0
 
             reply = None if isinstance(primary, Exception) else GuestResult(

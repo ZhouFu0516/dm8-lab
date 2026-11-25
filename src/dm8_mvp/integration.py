@@ -495,6 +495,10 @@ def main(argv: list[str] | None = None) -> int:
                     raise I1StageError(r1_status,f"R1 exited {restore_rc} with status {r1_status}")
                 if restore_rc != 0:
                     raise RuntimeError(f"R1 exited {restore_rc} with status {r1.get('status')}")
+                r1_stages=r1.get("stages")
+                if (not isinstance(r1_stages,dict) or
+                        any(r1_stages.get(name)!="PASS" for name in ("physical_recovery","verification"))):
+                    raise I1StageError("INCOMPLETE","R1 PASS lacks matching physical recovery and verification PASS evidence")
                 counts=r1.get("counts"); expected={"LOCATIONS","DEPARTMENTS","JOBS","EMPLOYEES","JOB_HISTORY","SALARIES"}
                 if r1.get("status")!="PASS" or r1.get("verification")!="ROW_COUNT_OBSERVED" or not isinstance(counts,dict) or set(counts)!=expected or r1.get("comparison")!="NOT EXECUTED":
                     raise ValueError("R1 report missing matching PASS, OPEN/NORMAL six-count evidence")

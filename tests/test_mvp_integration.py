@@ -142,7 +142,7 @@ class I1IntegrationTests(unittest.TestCase):
                 return isolated_sql_guest(script,response)
             def fake_restore(run_cfg):
                 report_dir=Path(run_cfg["r1_report_dir"]);report_dir.mkdir(parents=True)
-                (report_dir/f"{run_cfg['run_id']}.json").write_text(json.dumps({"run_id":run_cfg["run_id"],"status":"PASS","verification":"ROW_COUNT_OBSERVED","comparison":"NOT EXECUTED","counts":counts}))
+                (report_dir/f"{run_cfg['run_id']}.json").write_text(json.dumps({"run_id":run_cfg["run_id"],"status":"PASS","stages":{"physical_recovery":"PASS","verification":"PASS"},"verification":"ROW_COUNT_OBSERVED","comparison":"NOT EXECUTED","counts":counts}))
                 return 0
             with patch("dm8_mvp.integration.QgaRunner.run",side_effect=guest_run) as guest,patch("dm8_mvp.integration.prepare_restore_input",return_value={"status":"PASS"}),patch("dm8_mvp.integration.transfer_manifest",return_value=[{"name":"a.bak"},{"name":"a.meta"}]),patch("dm8_mvp.integration.verify_target_hashes",return_value={"a.bak":digest,"a.meta":digest}),patch("dm8_mvp.integration.execute_r1",side_effect=fake_restore),redirect_stdout(io.StringIO()):
                 rc = main(["--config", str(path), "--execute"])

@@ -66,11 +66,24 @@ def parse_count_output(text: str) -> dict[str, int]:
     return values
 
 
+def recovery_verification_output(text: str) -> str:
+    """Require unique, ordered whole-line completion evidence before acceptance."""
+    verification_lines(text)  # Reject SQL errors even outside the query sections.
+    lines = [line.strip() for line in text.splitlines()]
+    markers = ('MVP_PHYSICAL_RECOVERY_PASS', 'STAGE START-VERIFY', 'MVP_RECOVERY_STAGES_PASS')
+    if any(lines.count(marker) != 1 for marker in markers):
+        raise ValueError('missing or duplicate R1 completion evidence')
+    physical, verify, finished = (lines.index(marker) for marker in markers)
+    if not physical < verify < finished:
+        raise ValueError('R1 completion evidence is out of order')
+    return '\n'.join(lines[verify + 1:finished])
+
+
 def build_verification_gate() -> str:
     """Embed the same parser and its actual dependencies; no guest package install."""
     source = '\n\n'.join(inspect.getsource(function) for function in (
         check_sql_errors, result_lines, verification_lines, parse_restore_status, parse_count_output))
-    return '''python3 - "$LOGDIR/verify.log" "$INSTANCE_NAME" <<'PY_R1_VERIFY'
+    return '''if python3 - "$LOGDIR/verify.log" "$INSTANCE_NAME" <<'PY_R1_VERIFY'
 from __future__ import annotations
 import re, sys
 ''' + f'COUNT_TABLES = {COUNT_TABLES!r}\n' + source + '''
@@ -83,6 +96,13 @@ except (OSError, ValueError) as exc:
     print('FAIL:R1 verification: ' + str(exc))
     raise SystemExit(10)
 PY_R1_VERIFY
+then
+    :
+else
+    cat "$LOGDIR/verify.log"
+    echo 'FAIL:R1 state or COUNT verification'
+    exit 10
+fi
 '''
 
 
@@ -265,7 +285,7 @@ test "$ready" = 1 || {{ cat "$LOGDIR/dmserver.log"; fail 'dmserver not ready'; }
   echo 'PROMPT __COUNT_SALARIES__'; echo 'SELECT COUNT(*) FROM HR_TEST.SALARIES;'
   echo 'EXIT;'
 }} | runuser -u dmdba -- /opt/dmdbms/bin/disql /nolog >"$LOGDIR/verify.log" 2>&1 || {{ cat "$LOGDIR/verify.log"; fail verify; }}
-{build_verification_gate()}if [ "$?" -ne 0 ]; then cat "$LOGDIR/verify.log"; fail 'R1 state or COUNT verification'; fi
+{build_verification_gate()}
 echo 'MVP_VERIFY_LOG='$LOGDIR/verify.log
 cat "$LOGDIR/verify.log"
 echo 'MVP_RECOVERY_STAGES_PASS'
@@ -286,14 +306,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         result = QgaRunner(cfg["guest"], cfg.get("timeout", 900)).run(script)
+        if not result.exited or result.exitcode is None:
+            from .runner import QgaUnknown
+            raise QgaUnknown('R1 guest execution has no confirmed final exit code; no retry')
         exitcode = result.exitcode
         stdout, stderr = result.stdout, result.stderr
         counts = None
         status = "FAIL"
-        if result.exitcode == 0 and "MVP_RECOVERY_STAGES_PASS" in stdout:
+        if result.exitcode == 0 and "MVP_RECOVERY_STAGES_PASS" in [line.strip() for line in stdout.splitlines()]:
             try:
-                parse_restore_status(stdout, cfg.get("instance_name", cfg.get("db_name", Path(cfg["target"]).name)))
-                counts = parse_count_output(stdout)
+                verification_lines(stderr)
+                output = recovery_verification_output(stdout)
+                parse_restore_status(output, cfg.get("instance_name", cfg.get("db_name", Path(cfg["target"]).name)))
+                counts = parse_count_output(output)
                 status = "PASS"
             except ValueError as exc:
                 status = "INCOMPLETE"
@@ -328,12 +353,12 @@ def main(argv: list[str] | None = None) -> int:
         "stderr": stderr,
         "stages": {
             "physical_recovery": (
-                "PASS" if "MVP_PHYSICAL_RECOVERY_PASS" in stdout.splitlines() else
+                "PASS" if [line.strip() for line in stdout.splitlines()].count("MVP_PHYSICAL_RECOVERY_PASS") == 1 else
                 "BLOCKED" if status == "BLOCKED" else
                 "FAIL" if any(line in ("STAGE RESTORE", "STAGE RECOVER") for line in stdout.splitlines()) else
                 "NOT EXECUTED"
             ),
-            "verification": status if "STAGE START-VERIFY" in stdout.splitlines() else
+            "verification": status if [line.strip() for line in stdout.splitlines()].count("STAGE START-VERIFY") == 1 else
                             "BLOCKED" if status == "BLOCKED" else "NOT EXECUTED",
         },
     }

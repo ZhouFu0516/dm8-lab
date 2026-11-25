@@ -114,13 +114,15 @@ class RestoreStatusTests(unittest.TestCase):
                        instance_name="DM8RT01", report_dir=td, run_id="offline-r1")
             path = Path(td) / "config.json"
             path.write_text(json.dumps(cfg))
-            output = bounded_real_output() + "\nMVP_RECOVERY_STAGES_PASS\n"
+            output = ("MVP_PHYSICAL_RECOVERY_PASS\nSTAGE START-VERIFY\n" +
+                      bounded_real_output() + "\nMVP_RECOVERY_STAGES_PASS\n")
             with patch("dm8_mvp.restore.QgaRunner.run", return_value=GuestResult(0, output, "", 7, True)), redirect_stdout(io.StringIO()):
                 rc = restore.main(["--config", str(path), "--execute"])
             report = json.loads((Path(td) / "offline-r1.json").read_text())
             self.assertEqual(rc, 0)
             self.assertEqual(report["status"], "PASS")
             self.assertEqual(report["counts"], COUNTS)
+            self.assertEqual(report["stages"], dict(physical_recovery="PASS", verification="PASS"))
 
     def test_r1_main_completion_marker_cannot_override_bad_query(self):
         with tempfile.TemporaryDirectory() as td:
@@ -129,7 +131,8 @@ class RestoreStatusTests(unittest.TestCase):
                        instance_name="DM8RT01", report_dir=td, run_id="offline-r1")
             path = Path(td) / "config.json"
             path.write_text(json.dumps(cfg))
-            output = bounded_real_output().replace("DM8RT01       OPEN    NORMAL", "DM8RT01 MOUNT NORMAL")
+            output = ("MVP_PHYSICAL_RECOVERY_PASS\nSTAGE START-VERIFY\n" +
+                      bounded_real_output().replace("DM8RT01       OPEN    NORMAL", "DM8RT01 MOUNT NORMAL"))
             with patch("dm8_mvp.restore.QgaRunner.run", return_value=GuestResult(0, output + "\nMVP_RECOVERY_STAGES_PASS\n", "", 7, True)), redirect_stdout(io.StringIO()):
                 rc = restore.main(["--config", str(path), "--execute"])
             report = json.loads((Path(td) / "offline-r1.json").read_text())
