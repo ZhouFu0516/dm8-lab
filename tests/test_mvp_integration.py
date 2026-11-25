@@ -240,6 +240,27 @@ class I1IntegrationTests(unittest.TestCase):
             hashes.assert_not_called()
             r1.assert_not_called()
 
+    def test_primary_creates_missing_log_parent_without_reusing_run_directory(self):
+        from dm8_mvp.guest_runtime import primary
+        preflight="__B1_INSTANCE__\n1 DM8RT01|OPEN|PRIMARY\n__B1_ARCHIVE__\n1 Y\n"
+        with tempfile.TemporaryDirectory() as td:
+            logdir=Path(td)/"new-log-root"/"run"
+            request=dict(self.cfg,logdir=str(logdir),backupset=str(Path(td)/"backup-root"/"run"),
+                         preflight_queries=["SELECT 1;"])
+            replies=[{"status":"PASS","exitcode":0,"stdout":preflight,"stderr":""},
+                     {"status":"FAIL","exitcode":9,"stdout":"","stderr":"","reason":"offline backup stub"}]
+            with patch("dm8_mvp.guest_runtime.sql_result",side_effect=replies),patch("dm8_mvp.guest_runtime.probe",return_value={"status":"PASS"}),patch("dm8_mvp.guest_runtime.subprocess.run",return_value=subprocess.CompletedProcess([],0)) as command:
+                result=primary(request)
+            self.assertTrue(logdir.is_dir())
+            self.assertEqual((logdir.stat().st_mode & 0o777),0o700)
+            self.assertEqual((logdir/"preflight.log").read_text(),preflight)
+            self.assertEqual(result["status"],"FAIL")
+            self.assertEqual(command.call_count,1)
+            with patch("dm8_mvp.guest_runtime.sql_result",return_value=replies[0]),patch("dm8_mvp.guest_runtime.probe",return_value={"status":"PASS"}),patch("dm8_mvp.guest_runtime.subprocess.run") as command:
+                with self.assertRaisesRegex(ValueError,"directory exists"):
+                    primary(request)
+                command.assert_not_called()
+
     def test_execute_primary_failure_stops_before_transfer(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = dict(self.cfg, report_dir=td)

@@ -136,7 +136,7 @@ def primary(request):
     backup = Path(request['backupset'])
     if log.exists() or backup.exists():
         raise ValueError('primary target/log directory exists')
-    log.mkdir(mode=0o700)  # parent existence/permissions were checked by readonly probe
+    log.mkdir(mode=0o700, parents=True)  # create isolated log root; never reuse the run directory
     (log / 'preflight.log').write_text(pre['stdout'] + pre['stderr'])
     subprocess.run(['runuser', '-u', 'dmdba', '--', 'mkdir', '-p', '--', str(backup.parent)], check=True)
     result = sql_result(dict(request, queries=["BACKUP DATABASE FULL BACKUPSET '%s';" % backup]))
