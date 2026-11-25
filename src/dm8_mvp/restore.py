@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import shlex
@@ -10,6 +11,7 @@ from pathlib import Path
 import re
 
 from .runner import QgaRunner
+from dm8_verify.collectors.disql_results import check_sql_errors, result_lines
 
 
 COUNT_TABLES = ("LOCATIONS", "DEPARTMENTS", "JOBS", "EMPLOYEES", "JOB_HISTORY", "SALARIES")
@@ -18,23 +20,70 @@ MOUNT_ROOTS = tuple(Path(p) for p in ("/data/mvp", "/data/mvp40", "/data/mvp60")
 PROTECTED_ROOTS = tuple(Path(p) for p in ("/data/restore-c", "/data/e7", "/data/dm8"))
 
 
+def verification_lines(text: str) -> list[str]:
+    """Normalize terminal formatting without accepting arbitrary success text."""
+    text = re.sub(r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)', '', text)
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+    return list(result_lines(text.replace('\r\n', '\n').replace('\r', '\n')))
+
+
+def parse_restore_status(text: str, expected_instance: str) -> dict[str, str]:
+    """Require one bounded V$INSTANCE result, in instance/status/mode order."""
+    lines = verification_lines(text)
+    begin, end = '__R1_STATUS_BEGIN__', '__R1_STATUS_END__'
+    if lines.count(begin) != 1 or lines.count(end) != 1:
+        raise ValueError('missing or duplicate R1 status boundary')
+    first, last = lines.index(begin), lines.index(end)
+    if last != first + 2:
+        raise ValueError('missing or ambiguous R1 status result')
+    match = re.fullmatch(r'(?:1\s+)?([A-Za-z][A-Za-z0-9_-]*)\s+([A-Za-z]+)\s+([A-Za-z]+)',
+                         lines[first + 1])
+    if not match:
+        raise ValueError('malformed R1 status result')
+    instance, status, mode = match.groups()
+    if instance.upper() != expected_instance.upper() or (status.upper(), mode.upper()) != ('OPEN', 'NORMAL'):
+        raise ValueError('restored instance is not the expected OPEN/NORMAL instance')
+    return dict(instance=instance, status=status.upper(), mode=mode.upper())
+
+
 def parse_count_output(text: str) -> dict[str, int]:
     """Parse explicitly labelled COUNT output; never infer table order."""
-    if re.search(r"DISQL-[0-9]+|\[-[0-9]+\]|Syntax error|Invalid table", text, re.I):
-        raise ValueError("SQL error in verification output")
+    lines = verification_lines(text)
     values = {}
     for table in COUNT_TABLES:
         marker = f"__COUNT_{table}__"
-        if text.count(marker) != 1:
+        if lines.count(marker) != 1:
             raise ValueError(f"missing or duplicate marker for {table}")
-        start = text.index(marker) + len(marker)
-        end = text.find("__COUNT_", start)
-        section = text[start:] if end < 0 else text[start:end]
-        match = re.search(r"^\s*1\s+(\d+)\s*$", section, re.MULTILINE)
+        section = []
+        for line in lines[lines.index(marker) + 1:]:
+            if line.startswith(('__COUNT_', 'MVP_')):
+                break
+            section.append(line)
+        match = re.fullmatch(r'1\s+(\d+)', section[0]) if len(section) == 1 else None
         if not match:
-            raise ValueError(f"missing COUNT for {table}")
+            raise ValueError(f"missing, invalid or ambiguous COUNT for {table}")
         values[table] = int(match.group(1))
     return values
+
+
+def build_verification_gate() -> str:
+    """Embed the same parser and its actual dependencies; no guest package install."""
+    source = '\n\n'.join(inspect.getsource(function) for function in (
+        check_sql_errors, result_lines, verification_lines, parse_restore_status, parse_count_output))
+    return '''python3 - "$LOGDIR/verify.log" "$INSTANCE_NAME" <<'PY_R1_VERIFY'
+from __future__ import annotations
+import re, sys
+''' + f'COUNT_TABLES = {COUNT_TABLES!r}\n' + source + '''
+try:
+    with open(sys.argv[1]) as stream:
+        output = stream.read()
+    parse_restore_status(output, sys.argv[2])
+    parse_count_output(output)
+except (OSError, ValueError) as exc:
+    print('FAIL:R1 verification: ' + str(exc))
+    raise SystemExit(10)
+PY_R1_VERIFY
+'''
 
 
 def validate_mapping_text(text: str, target: str) -> list[str]:
@@ -203,7 +252,10 @@ test "$ready" = 1 || {{ cat "$LOGDIR/dmserver.log"; fail 'dmserver not ready'; }
   echo 'ALTER DATABASE OPEN;'
   echo 'SET HEADING OFF'
   echo 'SET FEEDBACK OFF'
+  echo 'SET ECHO OFF'
+  echo 'PROMPT __R1_STATUS_BEGIN__'
   echo 'SELECT INSTANCE_NAME, STATUS$, MODE$ FROM V$INSTANCE;'
+  echo 'PROMPT __R1_STATUS_END__'
   echo 'PROMPT __COUNT_LOCATIONS__'; echo 'SELECT COUNT(*) FROM HR_TEST.LOCATIONS;'
   echo 'PROMPT __COUNT_DEPARTMENTS__'; echo 'SELECT COUNT(*) FROM HR_TEST.DEPARTMENTS;'
   echo 'PROMPT __COUNT_JOBS__'; echo 'SELECT COUNT(*) FROM HR_TEST.JOBS;'
@@ -212,9 +264,7 @@ test "$ready" = 1 || {{ cat "$LOGDIR/dmserver.log"; fail 'dmserver not ready'; }
   echo 'PROMPT __COUNT_SALARIES__'; echo 'SELECT COUNT(*) FROM HR_TEST.SALARIES;'
   echo 'EXIT;'
 }} | runuser -u dmdba -- /opt/dmdbms/bin/disql /nolog >"$LOGDIR/verify.log" 2>&1 || {{ cat "$LOGDIR/verify.log"; fail verify; }}
-grep -Eqi 'mode is normal, state is open' "$LOGDIR/verify.log" || {{ cat "$LOGDIR/verify.log"; fail 'database not OPEN/NORMAL'; }}
-if grep -Eq 'DISQL-[0-9]+|\\[-[0-9]+\\]|Syntax error|Invalid table' "$LOGDIR/verify.log"; then cat "$LOGDIR/verify.log"; fail 'verification SQL error'; fi
-for table in LOCATIONS DEPARTMENTS JOBS EMPLOYEES JOB_HISTORY SALARIES; do grep -q "__COUNT_$table__" "$LOGDIR/verify.log" || {{ cat "$LOGDIR/verify.log"; fail "missing COUNT marker $table"; }}; done
+{build_verification_gate()}if [ "$?" -ne 0 ]; then cat "$LOGDIR/verify.log"; fail 'R1 state or COUNT verification'; fi
 echo 'MVP_VERIFY_LOG='$LOGDIR/verify.log
 cat "$LOGDIR/verify.log"
 echo 'MVP_RECOVERY_STAGES_PASS'
@@ -239,11 +289,11 @@ def main(argv: list[str] | None = None) -> int:
         stdout, stderr = result.stdout, result.stderr
         counts = None
         status = "FAIL"
-        open_normal = bool(re.search(r"mode is normal, state is open", stdout, re.I))
         if result.exitcode == 0 and "MVP_RECOVERY_STAGES_PASS" in stdout:
             try:
+                parse_restore_status(stdout, cfg.get("instance_name", cfg.get("db_name", Path(cfg["target"]).name)))
                 counts = parse_count_output(stdout)
-                status = "PASS" if open_normal else "INCOMPLETE"
+                status = "PASS"
             except ValueError as exc:
                 status = "INCOMPLETE"
                 stderr = (stderr + "\n" if stderr else "") + str(exc)

@@ -1,0 +1,36 @@
+disql V8
+SQL> 
+Server[LOCALHOST:15242]:mode is primary, state is mount
+login used time : 3.307(ms)
+SQL> executed successfully
+used time: 10.358(ms). Execute id is 0.
+SQL> executed successfully
+used time: 83.585(ms). Execute id is 0.
+SQL> SQL> SQL> 
+1          DM8RT01       OPEN    NORMAL
+used time: 1.651(ms). Execute id is 1.
+SQL>  __COUNT_LOCATIONS__
+SQL> 
+1          48
+used time: 0.907(ms). Execute id is 2.
+SQL>  __COUNT_DEPARTMENTS__
+SQL> 
+1          160
+used time: 0.595(ms). Execute id is 3.
+SQL>  __COUNT_JOBS__
+SQL> 
+1          112
+used time: 0.484(ms). Execute id is 4.
+SQL>  __COUNT_EMPLOYEES__
+SQL> 
+1          600000
+used time: 0.493(ms). Execute id is 5.
+SQL>  __COUNT_JOB_HISTORY__
+SQL> 
+1          1800000
+used time: 0.529(ms). Execute id is 6.
+SQL>  __COUNT_SALARIES__
+SQL> 
+1          1599680
+used time: 0.473(ms). Execute id is 7.
+SQL> 
