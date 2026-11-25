@@ -128,7 +128,7 @@ class I1IntegrationTests(unittest.TestCase):
             cfg = dict(self.cfg, report_dir=td)
             path = Path(td) / "i1.json"; path.write_text(json.dumps(cfg))
             digest = "a" * 64
-            primary={"status":"PASS","manifest":"a.bak 3\na.meta 2","hashes":f"{digest}  /bak/a.bak\n{digest}  /bak/a.meta"}
+            primary={"status":"PASS","stages":{"backup":"PASS","check":"PASS"},"manifest":"a.bak 3\na.meta 2","hashes":f"{digest}  /bak/a.bak\n{digest}  /bak/a.meta"}
             counts={name:1 for name in ("LOCATIONS","DEPARTMENTS","JOBS","EMPLOYEES","JOB_HISTORY","SALARIES")}
             preflight="__B1_INSTANCE__\n1 DM8RT01|OPEN|PRIMARY\n__B1_ARCHIVE__\nSQL> 1 Y\n"
             count_output="\n".join(f"__DM8_VERIFY_COUNT_BEGIN__{name}\n1 1\n__DM8_VERIFY_COUNT_END__{name}" for name in counts)
@@ -192,7 +192,7 @@ class I1IntegrationTests(unittest.TestCase):
                 path.write_text(json.dumps(dict(self.cfg,report_dir=td)))
                 responses=iter([{"status":"PASS","available_bytes":9999},
                                 {"status":"PASS","available_bytes":9999},preflight,counts,
-                                {"status":"PASS"},None])
+                                {"status":"PASS","stages":{"backup":"PASS","check":"PASS"}},None])
                 def guest_run(script):
                     response=next(responses)
                     if isinstance(response,dict):
@@ -222,7 +222,7 @@ class I1IntegrationTests(unittest.TestCase):
         baseline=restored_count_baseline(counts)
         baseline["source_type"]="DATABASE"
         digest="a"*64
-        primary=json.dumps({"status":"PASS","manifest":"a.bak 3\na.meta 2",
+        primary=json.dumps({"status":"PASS","stages":{"backup":"PASS","check":"PASS"},"manifest":"a.bak 3\na.meta 2",
                             "hashes":f"{digest}  /bak/a.bak\n{digest}  /bak/a.meta"})
         with tempfile.TemporaryDirectory() as td:
             path=Path(td)/"i1.json"
@@ -274,7 +274,7 @@ class I1IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = dict(self.cfg, report_dir=td)
             path = Path(td) / "i1.json"; path.write_text(json.dumps(cfg))
-            with patch("dm8_mvp.integration.invoke_guest",return_value={"status":"PASS","available_bytes":9999}),patch("dm8_mvp.integration.collect_source_baseline", side_effect=[{"source_type":"DATABASE"},{"source_type":"DATABASE"}]), patch("dm8_mvp.integration.compare_row_count_baselines", return_value={"status": "FAIL"}), patch("dm8_mvp.integration.execute_primary", return_value=GuestResult(0, json.dumps({"status":"PASS","manifest":"a.bak 1\na.meta 1","hashes":""}), "", 1, True)), patch("dm8_mvp.integration.transfer_manifest") as transfer:
+            with patch("dm8_mvp.integration.invoke_guest",return_value={"status":"PASS","available_bytes":9999}),patch("dm8_mvp.integration.collect_source_baseline", side_effect=[{"source_type":"DATABASE"},{"source_type":"DATABASE"}]), patch("dm8_mvp.integration.compare_row_count_baselines", return_value={"status": "FAIL"}), patch("dm8_mvp.integration.execute_primary", return_value=GuestResult(0, json.dumps({"status":"PASS","stages":{"backup":"PASS","check":"PASS"},"manifest":"a.bak 1\na.meta 1","hashes":""}), "", 1, True)), patch("dm8_mvp.integration.transfer_manifest") as transfer:
                 rc = main(["--config", str(path), "--execute"])
             self.assertNotEqual(rc, 0)
             transfer.assert_not_called()

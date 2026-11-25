@@ -431,14 +431,30 @@ def main(argv: list[str] | None = None) -> int:
             status="PASS"
         else:
             stage="backup"
+            # A lost QGA response cannot establish whether either tool ran.
+            details["stages"].update(backup="BLOCKED",check="BLOCKED")
             primary_result=execute_primary(cfg)
+            details["primary_execution"]={"pid":primary_result.pid,"exited":primary_result.exited,
+                "exitcode":primary_result.exitcode,"stdout":primary_result.stdout,"stderr":primary_result.stderr}
+            primary=json.loads(primary_result.stdout)
+            if not isinstance(primary,dict):
+                raise ValueError("PRIMARY result was not an object")
+            details["primary_result"]=primary
+            primary_stages=primary.get("stages",{})
+            for name in ("backup","check"):
+                value=primary_stages.get(name)
+                if value in ("PASS","FAIL","BLOCKED","INCOMPLETE","NOT EXECUTED"):
+                    details["stages"][name]=value
+            if "check" in primary:
+                stage="check"
             if primary_result.exitcode != 0:
-                raise RuntimeError(f"PRIMARY guest operation exitcode={primary_result.exitcode}: {primary_result.stderr}")
-            primary=json.loads(primary_result.stdout); details["primary_result"]=primary
+                raise I1StageError("BLOCKED" if primary.get("status")=="BLOCKED" else "FAIL",
+                                  f"PRIMARY guest operation exitcode={primary_result.exitcode}",primary)
             if primary.get("status") != "PASS":
-                status=primary.get("status","FAIL")
-                raise RuntimeError("PRIMARY backup/CHECK did not PASS: "+str(primary.get("reason",primary.get("status"))))
-            details["stages"]["backup"]="PASS"; details["stages"]["check"]="PASS"
+                status=primary.get("status") if primary.get("status") in ("FAIL","BLOCKED","INCOMPLETE") else "FAIL"
+                raise I1StageError(status,"PRIMARY backup/CHECK did not PASS: "+str(primary.get("reason",primary.get("status"))),primary)
+            if any(details["stages"][name]!="PASS" for name in ("backup","check")):
+                raise I1StageError("INCOMPLETE","PRIMARY response lacks successful BACKUP/CHECK stage evidence",primary)
             stage="source_after"
             source_after=collect_source_baseline(cfg); details["source_after"]=source_after
             source_comparison=compare_row_count_baselines(source_before,source_after); details["source_comparison"]=source_comparison
@@ -488,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         status=exc.status;details["failure"]={"stage":stage,"type":type(exc).__name__,"reason":str(exc)}
         if exc.guest_result is not None:
             details["failure"]["guest_result"]=exc.guest_result
+            if exc.guest_result.get("unknown"):
+                details["failure"]["guest_outcome"]="UNKNOWN; no retry"
     except (OSError,RuntimeError,ValueError,KeyError,TypeError,json.JSONDecodeError) as exc:
         if status not in ("BLOCKED","INCOMPLETE"):
             status="BLOCKED" if stage in ("readonly_preflight","source_before") else "FAIL"

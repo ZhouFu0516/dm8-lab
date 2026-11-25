@@ -128,8 +128,11 @@ def prepare_input(request):
 def primary(request):
     # Role/archive results are parsed before any mkdir or BACKUP.
     pre = sql_result(dict(request, queries=request['preflight_queries']))
+    response = dict(status='INCOMPLETE', preflight=pre,
+                    stages=dict(backup='NOT EXECUTED', check='NOT EXECUTED'))
     if pre['status'] != 'PASS':
-        return dict(status=pre['status'], preflight=pre)
+        response.update(status=pre['status'], reason=pre.get('reason'))
+        return response
     parse_primary_preflight(pre['stdout'])
     volume_probe=probe(request)
     log = Path(request['logdir'])
@@ -139,44 +142,84 @@ def primary(request):
     log.mkdir(mode=0o700, parents=True)  # create isolated log root; never reuse the run directory
     (log / 'preflight.log').write_text(pre['stdout'] + pre['stderr'])
     subprocess.run(['runuser', '-u', 'dmdba', '--', 'mkdir', '-p', '--', str(backup.parent)], check=True)
-    result = sql_result(dict(request, queries=["BACKUP DATABASE FULL BACKUPSET '%s';" % backup]))
-    (log / 'backup.log').write_text(result.get('stdout', '') + result.get('stderr', ''))
-    if result.get('unknown'):
-        return dict(status='BLOCKED', unknown=True, reason=result['reason'], backup=result)
-    if result['status'] != 'PASS':
-        return dict(status='FAIL', reason=result.get('reason'), backup=result)
-    check_sql_errors(result['stdout'] + result['stderr'])
-    if result['exitcode'] != 0 or not re.search(r'executed successfully', result['stdout'], re.I):
-        return dict(status='FAIL', backup=result)
-    command = ['runuser', '-u', 'dmdba', '--', '/opt/dmdbms/bin/dmrman', 'USE_AP=2',
-               "CTLSTMT=CHECK BACKUPSET '%s' LEVEL 1" % backup]
     try:
-        check = subprocess.run(command, capture_output=True, text=True, timeout=request.get('sql_timeout', 90))
-    except subprocess.TimeoutExpired:
-        return dict(status='BLOCKED', backup=result, check=dict(unknown=True, reason='CHECK timeout'))
-    output = check.stdout + check.stderr
-    (log / 'check.log').write_text(output)
-    check_sql_errors(output)
-    if check.returncode != 0 or not re.search(r'check backupset successfully', output, re.I):
-        return dict(status='FAIL', backup=result, check=dict(exitcode=check.returncode, output=output))
-    files = sorted(p for p in backup.iterdir() if p.suffix.lower() in ('.bak', '.meta'))
-    if not any(p.suffix.lower() == '.bak' for p in files) or not any(p.suffix.lower() == '.meta' for p in files):
-        raise ValueError('backup file set incomplete')
-    manifest, hashes = [], []
-    for path in files:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError('backup file not a regular file')
-        digest = hashlib.sha256()
-        with path.open('rb') as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b''):
-                digest.update(block)
-        manifest.append('%s %s' % (path.name, path.stat().st_size))
-        hashes.append('%s  %s' % (digest.hexdigest(), path))
-    (log / 'manifest.txt').write_text('\n'.join(manifest) + '\n')
-    (log / 'sha256.txt').write_text('\n'.join(hashes) + '\n')
-    return dict(status='PASS', preflight=pre, backup=result,
-                check=dict(exitcode=check.returncode, output=output),
-                manifest='\n'.join(manifest), hashes='\n'.join(hashes))
+        response['stages']['backup'] = 'BLOCKED'  # outcome unknown until SQL returns
+        result = sql_result(dict(request, queries=["BACKUP DATABASE FULL BACKUPSET '%s';" % backup]))
+        response['backup'] = dict(result, executed=True)
+        response['stages']['backup'] = ('BLOCKED' if result.get('unknown') else
+                                        'INCOMPLETE' if result['status'] == 'PASS' and result['exitcode'] == 0 else 'FAIL')
+        (log / 'backup.log').write_text(result.get('stdout', '') + result.get('stderr', ''))
+        if result.get('unknown'):
+            response.update(status='BLOCKED', unknown=True, reason=result['reason'])
+            return response
+        if result['status'] != 'PASS' or result['exitcode'] != 0:
+            response.update(status='FAIL', reason=result.get('reason', 'BACKUP SQL failed'))
+            return response
+        try:
+            check_sql_errors(result['stdout'] + result['stderr'])
+        except ValueError as exc:
+            response['backup'].update(status='FAIL', reason=str(exc))
+            response['stages']['backup'] = 'FAIL'
+            response.update(status='FAIL', reason=str(exc))
+            return response
+
+        # SQL completion is not backup validity. Require files before running CHECK.
+        files = sorted(p for p in backup.iterdir() if p.suffix.lower() in ('.bak', '.meta'))
+        if not any(p.suffix.lower() == '.bak' for p in files) or not any(p.suffix.lower() == '.meta' for p in files):
+            raise ValueError('backup file set incomplete')
+        for path in files:
+            if path.is_symlink() or not path.is_file():
+                raise ValueError('backup file not a regular file')
+
+        command = ['runuser', '-u', 'dmdba', '--', '/opt/dmdbms/bin/dmrman', 'USE_AP=2',
+                   "CTLSTMT=CHECK BACKUPSET '%s' LEVEL 1" % backup]
+        response['stages']['check'] = 'BLOCKED'
+        response['check'] = dict(status='BLOCKED', attempted=True, unknown=True, exitcode=None)
+        try:
+            check = subprocess.run(command, capture_output=True, text=True, timeout=request.get('sql_timeout', 90))
+        except subprocess.TimeoutExpired:
+            response['check'].update(executed=True, reason='CHECK timeout; outcome unknown')
+            response.update(status='BLOCKED', unknown=True, reason='CHECK timeout; no retry')
+            return response
+        except OSError as exc:
+            response['check'].update(executed=False, unknown=False, reason=type(exc).__name__)
+            response['stages']['check'] = 'NOT EXECUTED'
+            response.update(status='BLOCKED', reason='Could not start CHECK: ' + type(exc).__name__)
+            return response
+        output = check.stdout + check.stderr
+        response['check'] = dict(status='FAIL', executed=True, exitcode=check.returncode, output=output)
+        response['stages']['check'] = 'FAIL'
+        try:
+            check_sql_errors(output)
+            if check.returncode != 0 or not re.search(r'check backupset successfully', output, re.I):
+                raise ValueError('CHECK BACKUPSET did not confirm success')
+        except ValueError as exc:
+            response['stages']['backup'] = 'FAIL'
+            response.update(status='FAIL', reason=str(exc))
+            (log / 'check.log').write_text(output)
+            return response
+        response['check']['status'] = 'PASS'
+        response['stages'].update(backup='PASS', check='PASS')
+        (log / 'check.log').write_text(output)
+        manifest, hashes = [], []
+        for path in files:
+            digest = hashlib.sha256()
+            with path.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(block)
+            manifest.append('%s %s' % (path.name, path.stat().st_size))
+            hashes.append('%s  %s' % (digest.hexdigest(), path))
+        (log / 'manifest.txt').write_text('\n'.join(manifest) + '\n')
+        (log / 'sha256.txt').write_text('\n'.join(hashes) + '\n')
+        response.update(status='PASS', manifest='\n'.join(manifest), hashes='\n'.join(hashes))
+        return response
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        unknown = 'BLOCKED' in response['stages'].values()
+        response.update(status='BLOCKED' if unknown else 'FAIL',
+                        reason=str(exc) if isinstance(exc, ValueError) else type(exc).__name__)
+        if unknown:
+            response['unknown'] = True
+        return response
 
 
 def guest_main(request):
@@ -196,6 +239,10 @@ def guest_main(request):
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         # Exception text may contain tool argv. Keep diagnostics to non-secret gate messages.
         reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-        print(json.dumps(dict(status='BLOCKED', reason=reason, exception_type=type(exc).__name__)))
+        error = dict(status='BLOCKED', reason=reason, exception_type=type(exc).__name__)
+        if request.get('operation') == 'primary':
+            # primary retains all failures after SQL dispatch; this is before BACKUP.
+            error['stages'] = dict(backup='NOT EXECUTED', check='NOT EXECUTED')
+        print(json.dumps(error))
         raise SystemExit(10)
 
