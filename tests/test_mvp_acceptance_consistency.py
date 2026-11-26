@@ -154,6 +154,20 @@ class AcceptanceConsistencyTests(unittest.TestCase):
                             self.assertIn("FAIL:R1 state or COUNT verification", result.stdout)
                             self.assertNotIn("GATE_PASS", result.stdout)
 
+    def test_generated_completion_footer_separates_marker_after_real_prompt_tail(self):
+        with tempfile.TemporaryDirectory() as td:
+            logdir = Path(td)
+            (logdir / "verify.log").write_text(status_fixtures.bounded_real_output() + "\nSQL> ")
+            env = dict(os.environ, LOGDIR=td)
+            result = subprocess.run(["bash", "-c", restore.build_completion_footer()],
+                                    capture_output=True, text=True, env=env, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            captured = PHYSICAL + "\n" + VERIFY + "\n" + result.stdout
+            rc, report = run_r1(captured)
+            self.assertEqual(rc, 0)
+            self.assertEqual(report["status"], "PASS")
+            self.assertEqual(report["counts"], status_fixtures.COUNTS)
+
     def test_embedded_python_has_no_package_import_and_python37_syntax(self):
         gate = restore.build_verification_gate()
         embedded = gate.split("<<'PY_R1_VERIFY'\n", 1)[1].split("\nPY_R1_VERIFY", 1)[0]

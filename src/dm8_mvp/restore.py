@@ -106,6 +106,14 @@ fi
 '''
 
 
+def build_completion_footer() -> str:
+    """Keep the final stage marker separate from a trailing DIsql prompt."""
+    return '''cat "$LOGDIR/verify.log"
+printf '\n'
+echo 'MVP_RECOVERY_STAGES_PASS'
+'''
+
+
 def validate_mapping_text(text: str, target: str) -> list[str]:
     """Validate all path/file assignments in a MAPPED FILE without touching disk."""
     root = _safe_path(target, "target")
@@ -287,8 +295,7 @@ test "$ready" = 1 || {{ cat "$LOGDIR/dmserver.log"; fail 'dmserver not ready'; }
 }} | runuser -u dmdba -- /opt/dmdbms/bin/disql /nolog >"$LOGDIR/verify.log" 2>&1 || {{ cat "$LOGDIR/verify.log"; fail verify; }}
 {build_verification_gate()}
 echo 'MVP_VERIFY_LOG='$LOGDIR/verify.log
-cat "$LOGDIR/verify.log"
-echo 'MVP_RECOVERY_STAGES_PASS'
+{build_completion_footer()}
 '''
 
 
